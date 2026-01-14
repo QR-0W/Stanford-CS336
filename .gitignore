@@ -1,0 +1,56 @@
+# Data files (large datasets)
+**/data/
+*.txt
+*.gz
+*.zip
+*.tar
+*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+.uv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Logs
+*.log
+nohup.out
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+
+# Model checkpoints (can be large)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Temporary files
+*.tmp
+*.bak
