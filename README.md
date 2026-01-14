@@ -161,7 +161,7 @@ uv run pytest
 - [ ] Transformer 组件（RMSNorm, RoPE, Attention）
 - [ ] 完整语言模型训练
 
-**学习笔记**: [Assignment 1 笔记](./assignment1-basics/notes.md)
+**学习笔记**: [Assignment 1 笔记](./docs/assignment1-notes.md)
 
 ---
 
