@@ -24,4 +24,6 @@ Q3.c：示例：b'\xff\xff'。在 UTF-8 编码规范中，字节 0xFF 被明确�
 
 我们在 TinyStories 数据集上训练一个字节级 BPE 分词器。代码位于 GitHub。
 
-首先实现 BPE，**从大量文本中学习出一个词表（Vocabulary）和一组合并规则（Merges）**。我们使用 GPT-2 的预分词规则。此外需要在 Tiny Stories 和 OpenWeb Text 上训练。耗时会比较长。
+首先实现 BPE，**从大量文本中学习出一个词表（Vocabulary）和一组合并规则（Merges）**。
+
+我们使用 GPT-2 的预分词规则。此外需要在 Tiny Stories 和 OpenWeb Text 上训练。耗时会比较长。
