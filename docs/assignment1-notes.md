@@ -2,7 +2,7 @@
 
 ## Unicode 标准
 
-Q1.a：chr(0) returns '\x00' (其实代表的字符是null）；
+Q1.a：chr(0) returns '\x00' (其实代表的字符是 null）；
 
 Q1.b：chr(0) 的字符表示与打印表示不一样，用 repr() 会看到 '\x00'，但是 print() 会看到一个空白；
 
@@ -18,7 +18,10 @@ Q3.c：示例：b'\xff\xff'。在 UTF-8 编码规范中，字节 0xFF 被明确�
 
 ## BPE 分词器训练
 
-词表初始化、预分词、计算 BPE 合并。需要注意特殊Token。
+词表初始化、预分词、计算 BPE 合并。需要注意特殊 Token。
 
 ## 尝试 BPE 分词器训练
 
+我们在 TinyStories 数据集上训练一个字节级 BPE 分词器。代码位于 GitHub。
+
+首先实现 BPE，**从大量文本中学习出一个词表（Vocabulary）和一组合并规则（Merges）**。我们使用 GPT-2 的预分词规则。此外需要在 Tiny Stories 和 OpenWeb Text 上训练。耗时会比较长。
