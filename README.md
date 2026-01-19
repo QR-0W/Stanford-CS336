@@ -1,5 +1,3 @@
-
-
 <div id="top"></div>
 
 <!--
@@ -8,13 +6,12 @@
 -->
 
 <!-- 项目 SHIELDS -->
+
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
-
-
 
 <!-- 项目 LOGO -->
 <br />
@@ -34,15 +31,10 @@
     <a href="https://github.com/stanford-cs336">官方课程仓库</a>
     ·
     <a href="https://github.com/QR-0W/Stanford-CS336/issues">反馈 Bug</a>
-    ·
-    <a href="https://github.com/QR-0W/Stanford-CS336/issues">请求新功能</a>
+
   </p>
 
-
-
 </div>
-
-
 
 <!-- 目录 -->
 
@@ -72,8 +64,6 @@
   </ol>
 </details>
 
-
-
 <!-- 关于本项目 -->
 
 ## 关于本项目
@@ -81,6 +71,7 @@
 本项目是 Stanford CS336 课程的个人学习仓库，记录了从零开始构建大语言模型的完整过程。
 
 **课程核心内容：**
+
 - 🔤 **Tokenization**: 实现 BPE (Byte-Pair Encoding) 分词器
 - 🧠 **Transformer Architecture**: 从头实现 Transformer（RMSNorm, RoPE, Multi-Head Attention, SwiGLU）
 - ⚡ **Systems**: 分布式训练（DDP, Sharded Optimizer, Flash Attention）
@@ -88,18 +79,23 @@
 - 🗂️ **Data Processing**: 数据清洗、去重、质量过滤
 - 🎯 **Alignment**: SFT, DPO, GRPO 等对齐技术
 
-
-
 ### 技术栈
 
-* [Python 3.10+](https://www.python.org/)
-* [PyTorch](https://pytorch.org/)
-* [UV Package Manager](https://github.com/astral-sh/uv)
-* [Transformers](https://huggingface.co/docs/transformers/)
-* [NumPy](https://numpy.org/)
+- [Python 3.10+](https://www.python.org/)
+- [PyTorch](https://pytorch.org/)
+- [UV Package Manager](https://github.com/astral-sh/uv)
+- [Transformers](https://huggingface.co/docs/transformers/)
+- [NumPy](https://numpy.org/)
 
+### 硬件配置信息
 
-
+| 组件     | 配置                                                |
+| -------- | --------------------------------------------------- |
+| **CPU**  | AMD Ryzen Threadripper 9960X (24核/48线程, 5.49GHz) |
+| **内存** | 251 GB DDR5                                         |
+| **GPU**  | 3× NVIDIA GeForce RTX 5090 (32GB × 3 = 96GB)        |
+| **存储** | 938GB NVMe + 1.9TB HDD                              |
+| **CUDA** | 13.0                                                |
 
 <!-- 开始 -->
 
@@ -107,15 +103,11 @@
 
 以下是在本地配置和运行项目的指南。
 
-
-
 ### 依赖
 
 - Python 3.10+
 - UV (推荐) 或 pip
 - CUDA (可选，用于 GPU 加速)
-
-
 
 ### 安装
 
@@ -146,16 +138,16 @@ cd assignment1-basics
 uv run pytest
 ```
 
-
-
 <!-- 作业概览 -->
 
 ## 作业概览
 
 ### Assignment 1: Basics
+
 **状态**: 🚧 进行中
 
 **主要任务**:
+
 - [x] 环境配置
 - [ ] BPE Tokenizer 实现
 - [ ] Transformer 组件（RMSNorm, RoPE, Attention）
@@ -166,9 +158,11 @@ uv run pytest
 ---
 
 ### Assignment 2: Systems
+
 **状态**: ⏳ 待开始
 
 **主要任务**:
+
 - [ ] 分布式数据并行 (DDP)
 - [ ] Sharded Optimizer (ZeRO-like)
 - [ ] Flash Attention 优化
@@ -176,18 +170,22 @@ uv run pytest
 ---
 
 ### Assignment 3: Scaling
+
 **状态**: ⏳ 待开始
 
 **主要任务**:
+
 - [ ] Scaling Laws 实验
 - [ ] 模型大小与性能关系研究
 
 ---
 
 ### Assignment 4: Data
+
 **状态**: ⏳ 待开始
 
 **主要任务**:
+
 - [ ] HTML 提取与清洗
 - [ ] 数据去重
 - [ ] 语言识别
@@ -197,14 +195,14 @@ uv run pytest
 ---
 
 ### Assignment 5: Alignment
+
 **状态**: ⏳ 待开始
 
 **主要任务**:
+
 - [ ] Supervised Fine-Tuning (SFT)
 - [ ] Direct Preference Optimization (DPO)
 - [ ] Group Relative Policy Optimization (GRPO)
-
-
 
 <!-- 学习笔记 -->
 
@@ -215,19 +213,19 @@ uv run pytest
 **核心思想**: 从字节级别开始，反复合并高频相邻 token 对
 
 **实现步骤**:
+
 1. 初始化 256 个字节 token (0-255)
 2. 统计所有相邻 token 对的频率
 3. 合并频率最高的 token 对
 4. 重复步骤 2-3 直到达到目标词表大小
 
 **性能优化**:
+
 - 使用分块处理避免内存溢出
 - 增量更新频率统计
 - 多进程并行化
 
 更多笔记请查看各作业目录下的 `notes.md` 文件。
-
-
 
 <!-- 路线图 -->
 
@@ -247,8 +245,6 @@ uv run pytest
 
 到 [open issues](https://github.com/QR-0W/Stanford-CS336/issues) 页查看所有计划功能和已知问题。
 
-
-
 <!-- 贡献 -->
 
 ## 贡献
@@ -263,15 +259,11 @@ uv run pytest
 4. 推送到该分支 (`git push origin feature/AmazingFeature`)
 5. 创建一个 Pull Request
 
-
-
 <!-- 许可证 -->
 
 ## 许可证
 
 本项目仅用于教育学习目的。请遵守 Stanford 的学术诚信政策。
-
-
 
 <!-- 联系我 -->
 
@@ -279,17 +271,13 @@ uv run pytest
 
 项目链接: [https://github.com/QR-0W/Stanford-CS336](https://github.com/QR-0W/Stanford-CS336)
 
-
-
 <!-- 致谢 -->
 
 ## 致谢
 
-* [Stanford CS336 Official Repository](https://github.com/stanford-cs336)
-* [othneildrew README Template](https://github.com/othneildrew/Best-README-Template)
-* [UV Package Manager](https://github.com/astral-sh/uv)
-
-
+- [Stanford CS336 Official Repository](https://github.com/stanford-cs336)
+- [othneildrew README Template](https://github.com/othneildrew/Best-README-Template)
+- [UV Package Manager](https://github.com/astral-sh/uv)
 
 <!-- MARKDOWN 链接 & 图片 -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
