@@ -149,7 +149,7 @@ uv run pytest
 **主要任务**:
 
 - [x] 环境配置
-- [ ] BPE Tokenizer 实现
+- [x] BPE Tokenizer 实现
 - [ ] Transformer 组件（RMSNorm, RoPE, Attention）
 - [ ] 完整语言模型训练
 
