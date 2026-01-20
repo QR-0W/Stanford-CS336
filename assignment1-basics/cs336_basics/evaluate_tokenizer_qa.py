@@ -105,6 +105,55 @@ def main():
     estimated_hours = estimated_seconds / 3600
     print(f"Estimated time for Pile (825GB): {estimated_hours:.2f} hours")
 
+    print("\n--- (d) Encoding Datasets to uint16 ---")
+    print("Why uint16? Because max vocab size is 32,000, which fits comfortably within uint16 (0-65535).")
+    print("uint16 uses 2 bytes per token, saving 75% memory compared to int64 (8 bytes).")
+
+    def encode_and_save(tokenizer, input_path, output_path, desc):
+        print(f"Encoding {desc}...")
+        start_time = time.time()
+
+        def line_generator(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    yield line
+
+        ids = []
+        # Progress tracking
+        count = 0
+        for token_id in tokenizer.encode_iterable(line_generator(input_path)):
+            ids.append(token_id)
+            count += 1
+            if count % 1_000_000 == 0:
+                print(f"  Processed {count / 1e6:.1f}M tokens...", end="\r")
+
+        print(f"  Total tokens: {count}")
+
+        # Convert to numpy uint16
+        ids_np = np.array(ids, dtype=np.uint16)
+        np.save(output_path, ids_np)
+
+        end_time = time.time()
+        print(f"  Saved to {output_path}")
+        print(f"  Time taken: {end_time - start_time:.2f}s")
+        return ids_np
+
+    # Encode Validation Sets (Fast)
+    try:
+        ts_valid_out = OUTPUT_DIR / "tiny_stories_valid.npy"
+        encode_and_save(ts_tokenizer, DATA_DIR / "TinyStoriesV2-GPT4-valid.txt", ts_valid_out, "TinyStories Valid")
+
+        owt_valid_out = OUTPUT_DIR / "owt_valid.npy"
+        encode_and_save(owt_tokenizer, DATA_DIR / "owt_valid.txt", owt_valid_out, "OpenWebText Valid")
+
+        print("\nNote: Validation sets encoded. To encode full training sets, you can run similar commands.")
+        # Uncomment to run full encoding if desired
+        # encode_and_save(ts_tokenizer, DATA_DIR / "TinyStoriesV2-GPT4-train.txt", OUTPUT_DIR / "tiny_stories_train.npy", "TinyStories Train")
+        # encode_and_save(owt_tokenizer, DATA_DIR / "owt_train.txt", OUTPUT_DIR / "owt_train.npy", "OpenWebText Train")
+
+    except Exception as e:
+        print(f"An error occurred during encoding: {e}")
+
 
 if __name__ == "__main__":
     main()

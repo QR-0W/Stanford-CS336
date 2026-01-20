@@ -2,7 +2,7 @@
 
 import json
 import regex
-from typing import Iterator, Iterable
+from collections.abc import Iterator, Iterable
 
 
 # GPT-2 风格的预分词正则表达式

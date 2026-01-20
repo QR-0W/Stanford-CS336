@@ -54,3 +54,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# Large Output Files (keep JSONs/logs, ignore binaries)
+**/output/*.npy
+**/output/*.bin
+

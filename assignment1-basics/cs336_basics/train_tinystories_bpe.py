@@ -10,7 +10,7 @@ from pathlib import Path
 DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-train.txt"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 VOCAB_SIZE = 10000
-SPECIAL_TOKENS = ["&lt;|endoftext|&gt;"]
+SPECIAL_TOKENS = ["<|endoftext|>"]
 
 
 def main():
