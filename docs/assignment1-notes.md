@@ -2,7 +2,7 @@
 
 ## 2.1 Unicode 标准
 
-**Q1.a** 
+**Q1.a**
 
 chr(0) returns '\x00' (其实代表的字符是null）；
 
@@ -30,8 +30,6 @@ UTF-8 避免了 UTF-16 和 UTF-32 中常见的冗余零字节填充（尤其是�
 
 ## 2.3 字词分词
 
-
-
 ## 2.4 BPE 分词器训练
 
 词表初始化、预分词、计算 BPE 合并。需要注意特殊Token。
@@ -42,15 +40,15 @@ UTF-8 避免了 UTF-16 和 UTF-32 中常见的冗余零字节填充（尤其是�
 
 首先实现BPE，**从大量文本中学习出一个词表（Vocabulary）和一组合并规则（Merges）**。我们使用 GPT-2 的预分词规则。此外需要在 Tiny Stories 和 OpenWeb Text 上训练。耗时会比较长。
 
-**Q4** 
+**Q4**
 
 BPE分词器训练
 
-**Q5** 
+**Q5**
 
 在 TinyStories 上进行 BPE 训练，耗时 48 分钟（估计是因为后台有别的东西在同时跑），峰值内存 38.8 GB。最长的 token 是 **accomplishment**（15 字节），这是一个常见的英语单词，常出现在儿童故事中表达成就感，完全合理。
 
-**Q6** 
+**Q6**
 
 在 OpenWebText 上进行 BPE 训练，用一开始的脚本会爆内存，但是我是 coding 苦手，只好让 Claude 帮我优化了（ 优化后的耗时 5.1 小时，内存占用 11.85 GB。最长 token 是 **64 字节的重复 UTF-8 序列 (\xc3\x83\xc3\x82...)**，这实际上是编码错误导致的乱码字符被频繁合并。这在真实网页数据中很常见，说明 OpenWebText 包含一些编码损坏的内容。
 
@@ -64,35 +62,67 @@ BPE 编码文本与训练 BPE 词表的过程类似：预分词 - 应用合并�
 
 ### 2.6.2 解码文本
 
-**Q7** 
+**Q7**
 
 实现 tokenizer 。
 
-**Q8.a** 
+**Q8.a**
 
 TinyStories tokenizer (10k vocab) 对其验证集的压缩率为 4.03 bytes/token，而 OpenWebText tokenizer (32k vocab) 对 OWT 验证集的压缩率为 4.70 bytes/token。
 
-**Q8.b** 
+**Q8.b**
 
 如果使用 TinyStories tokenizer 对 OpenWebText 数据进行分词，压缩率下降为 3.29 bytes/token。这是因为 TinyStories 的词表是针对简单儿童故事优化的，缺乏 OWT 中复杂多样的词汇，导致更多单词被拆解为更碎的字符级 token。
 
-**Q8.c** 
+**Q8.c**
 
 分词器的吞吐量约为 1.66 MB/s。按照这个速度，处理 825GB 的 Pile 数据集大约需要 148 小时（约 6.2 天）。
 
-**Q8.d** 
+**Q8.d**
 
 uint16 是合适的选择，因为我们的最大词表大小为 32,000，完全在 uint16（0-65535）的表示范围内。相比默认的 int64（8 字节），使用 uint16（2 字节）可以节省 75% 的内存和存储空间，这对于处理数十 GB 的大规模数据集至关重要。
 
-# 3 Transformer 
+# 3 Transformer
 
 在本部分作业中，将从头开始构建这个 Transformer 语言模型。我们将从模型的高层描述开始，然后逐步详细介绍各个组件。
 
 ## 3.1 Transformer LM
 
-Transformer􀀁语言模型使用输入嵌入将􀀁Token􀀁ID􀀁转换为稠密向量，将嵌入的􀀁Token􀀁通过􀀁 num_layers 􀀁个􀀁Transformer􀀁块，然后应用一个学习到的线性投影（“输出嵌入”或“LM􀀁Head”）来产生预测的下一个令牌􀀁Logits。
+Transformer 语言模型使用输入嵌入将 Token ID 转换为稠密向量，将嵌入的 Token 通过 num_layers 个 Transformer 块，然后应用一个学习到的线性投影（“输出嵌入”或“LM Head”）来产生预测的下一个令牌 Logits。
+
+![image-20260121100346026](./assets/image-20260121100346026.png)
+
+在操作中，我们将使用 Einops 来使我们对于张量的操作更加易读。
 
 **我们在本作业的数学符号中将使用列向量**。
 
+## 3.4 基础构建块：线性层
 
+Q9 实现线性层
 
+Q10 实现 Embedding 层
+
+## 3.5 PreNorm Transformer块
+
+研究发现将归一化移到子层输入端可以显著提高 Transformer 训练过程的稳定性。Pre‑norm 的一个直觉是，从输入嵌入到 Transformer 的最终输出存在一条没有任何归一化的纯净 “残差流”，据称这可以改善梯度流。
+
+Q11 实现 RMSNorm
+
+Q12 实现 SwiGLU 逐位置前馈网络
+
+Q13 实现相对位置嵌入 RoPE
+
+对于位置 $i$ 处的向量，旋转角度为： $$\theta_{i,k} = \frac{i}{\Theta^{(2k-2)/d}} \quad \text{for } k \in {1, ..., d/2}$$
+
+每对元素 $(x_{2k-1}, x_{2k})$ 通过 2×2 旋转矩阵变换：
+
+$$
+\begin{bmatrix} x'_{2k-1} \\ x'_{2k} \end{bmatrix} =
+\begin{bmatrix}
+\cos(\theta_{i,k})  & -\sin(\theta_{i,k})\\
+\sin(\theta_{i,k})  & \cos(\theta_{i,k})
+\end{bmatrix}
+\begin{bmatrix} x_{2k-1} \\ x_{2k} \end{bmatrix}
+$$
+
+这里有个坑debug了好久，`torch.einsum` 和 `einops.einsum` 支持的风格不一样，有一处 Antigravity 自动改成了 `torch.einsum` 没注意到一直 debug 不过。。。
