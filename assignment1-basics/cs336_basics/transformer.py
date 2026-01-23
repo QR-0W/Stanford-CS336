@@ -302,3 +302,218 @@ def scaled_dot_product_attention(
 
     # attention_weights @ V
     return einops.einsum(attention_weights, v, "... quries keys, ... keys d_v -> ... quries d_v")
+
+
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        number_heads: int,
+        max_seq_len: int = 0,
+        rope_theta: float = 10000.0,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """
+        Args:
+            d_model: 模型维度
+            number_heads: 头数
+            max_seq_len: 最大序列长度
+            rope_theta: RoPE 的 Theta 值
+            device: 存储参数的设备
+            dtype: 存储参数的数据类型
+        """
+        super().__init__()
+
+        self.d_model = d_model
+        self.number_heads = number_heads
+        self.d_k = d_model // number_heads
+
+        # QKV 投影
+        self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.v_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+
+        # 输出投影
+        self.out_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+
+        # RoPE (可选)
+        self.rope = None
+        if max_seq_len > 0:
+            self.rope = RotaryPositionalEmbedding(
+                theta=rope_theta,
+                d_k=self.d_k,
+                max_seq_length=max_seq_len,
+                device=device,
+            )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        token_positions: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            x: (..., seq_len, d_model)
+            mask: (..., queries, keys) 布尔张量
+            token_positions: (..., seq_len) RoPE 需要的位置索引
+        Returns:
+            (..., seq_len, d_model)
+        """
+        seq_len = einops.parse_shape(x, "... seq_len d_model")["seq_len"]
+
+        # QKV 投影
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+
+        # 分割多头
+        q = einops.rearrange(q, "... seq_len (heads d_k) -> ... heads seq_len d_k", heads=self.number_heads)
+        k = einops.rearrange(k, "... seq_len (heads d_k) -> ... heads seq_len d_k", heads=self.number_heads)
+        v = einops.rearrange(v, "... seq_len (heads d_k) -> ... heads seq_len d_k", heads=self.number_heads)
+
+        # 应用 RoPE
+        if self.rope is not None and token_positions is not None:
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+
+        # 因果掩码，下三角为1 (True=保留)
+        if mask is None:
+            mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool))
+
+        # SDPA
+        attn_out = scaled_dot_product_attention(q, k, v, mask)
+
+        # 合并多头
+        output = einops.rearrange(attn_out, "... heads seq_len d_k -> ... seq_len (heads d_k)", heads=self.number_heads)
+
+        # 输出投影
+        return self.out_proj(output)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        max_seq_len: int = 0,
+        rope_theta: float = 10000.0,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """
+        Args:
+            d_model: 模型维度
+            num_heads: 头数
+            d_ff: 前馈网络内部维度
+            max_seq_len: 最大序列长度
+            rope_theta: RoPE 的 Theta 值
+            device: 存储参数的设备
+            dtype: 参数的数据类型
+        """
+        super().__init__()
+
+        # RMSNorm
+        self.norm1 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.norm2 = RMSNorm(d_model, device=device, dtype=dtype)
+
+        # 多头自注意力
+        self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, rope_theta, device, dtype)
+
+        # FFN (SwiGLU)
+        self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
+        """
+        Args:
+            x: 输入的张量 (..., seq_len, d_model)
+            token_positions: 位置索引 (..., seq_len)
+
+        Returns:
+            输出的张量 (..., seq_len, d_model)
+        """
+        # 自动生成位置索引
+        if token_positions is None:
+            seq_len = einops.parse_shape(x, "... seq_len d_model")["seq_len"]
+            token_positions = torch.arange(seq_len, device=x.device)
+
+        # Pre-norm + MHA + 残差
+        h = x + self.attn(self.norm1(x), token_positions=token_positions)
+
+        # Pre-norm + FFN + 残差
+        output = h + self.ffn(self.norm2(h))
+
+        return output
+
+
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float = 10000.0,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """
+        Args:
+            vocab_size: 词表大小
+            context_length: 上下文长度
+            d_model: 模型维度
+            num_layers: 层数
+            num_heads: 头数
+            d_ff: 前馈网络内部维度
+            rope_theta: RoPE 的 Theta 值
+            device: 存储参数的设备
+            dtype: 参数的数据类型
+        """
+        super().__init__()
+
+        # Token Embedding
+        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+
+        # Transformer Blocks
+        self.layers = nn.ModuleList(
+            [
+                TransformerBlock(d_model, num_heads, d_ff, context_length, rope_theta, device, dtype)
+                for _ in range(num_layers)
+            ]
+        )
+
+        # Final LayerNorm
+        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+
+        # LM Head (输出投影)
+        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            token_ids: (batch_size, seq_len)
+        Returns:
+            logits: (batch_size, seq_len, vocab_size)
+        """
+        # Embedding
+        x = self.token_embeddings(token_ids)  # (batch, seq, d_model)
+
+        # 生成位置索引
+        seq_len = einops.parse_shape(x, "... seq_len d_model")["seq_len"]
+        token_positions = torch.arange(seq_len, device=x.device)
+
+        # 通过所有 Transformer Block
+        for layer in self.layers:
+            x = layer(x, token_positions)
+
+        # Final Norm
+        x = self.ln_final(x)
+
+        # LM Head → Logits
+        logits = self.lm_head(x)  # (batch, seq, vocab_size)
+
+        return logits
