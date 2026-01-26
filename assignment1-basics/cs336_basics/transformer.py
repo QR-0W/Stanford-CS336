@@ -517,3 +517,44 @@ class TransformerLM(nn.Module):
         logits = self.lm_head(x)  # (batch, seq, vocab_size)
 
         return logits
+
+
+def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """
+    计算交叉熵损失 Cross Entropy Loss (averaged over batch)
+
+    Args:
+        logits: (batch_size, vocab_size)
+        targets: (batch_size,)
+
+    Returns:
+        mean loss: scalar
+    """
+    # 减去最大元素保持数值稳定性
+    m = einops.reduce(logits, "b v -> b 1", "max")
+    sum_exp = einops.reduce(torch.exp(logits - m), "b v -> b 1", "sum")
+
+    # 计算 LSE
+    lse = m + torch.log(sum_exp)
+
+    # 获取目标类别的 logit
+    target_logit = torch.gather(logits, dim=1, index=einops.rearrange(targets, "b -> b 1"))
+
+    # 计算 cross entropy
+    loss = lse - target_logit
+
+    # 平均
+    return einops.reduce(loss, "b 1 -> ()", "mean")
+
+
+def compute_perplexity(loss: torch.Tensor) -> torch.Tensor:
+    """
+    计算困惑度 Perplexity
+    PPL = exp(mean_loss)
+
+    Args:
+        loss: scalar tensor (average cross entropy loss)
+    Returns:
+        perplexity: scalar tensor
+    """
+    return torch.exp(loss)
