@@ -197,6 +197,31 @@ class SwiGLU(nn.Module):
         return self.w2(hidden)
 
 
+class SiLUFFN(nn.Module):
+    """
+    Standard SiLU (Swish) FFN for ablation study
+
+    SiLUFFN(x) = W2 * SiLU(W1 * x)
+
+    Note: For parameter-matched comparison with SwiGLU (which has 3 matrices),
+    use d_ff = 1.5 * swiglu_d_ff to match param count.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_ff: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w2(torch.nn.functional.silu(self.w1(x)))
+
+
 class RotaryPositionalEmbedding(nn.Module):
     """
     Rotary Positional Embedding (RoPE)
@@ -311,6 +336,7 @@ class MultiHeadSelfAttention(nn.Module):
         number_heads: int,
         max_seq_len: int = 0,
         rope_theta: float = 10000.0,
+        use_rope: bool = True,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -320,6 +346,7 @@ class MultiHeadSelfAttention(nn.Module):
             number_heads: 头数
             max_seq_len: 最大序列长度
             rope_theta: RoPE 的 Theta 值
+            use_rope: 是否使用 RoPE (False = NoPE ablation)
             device: 存储参数的设备
             dtype: 存储参数的数据类型
         """
@@ -337,9 +364,9 @@ class MultiHeadSelfAttention(nn.Module):
         # 输出投影
         self.out_proj = Linear(d_model, d_model, device=device, dtype=dtype)
 
-        # RoPE (可选)
+        # RoPE (可选，use_rope=False 时不使用)
         self.rope = None
-        if max_seq_len > 0:
+        if use_rope and max_seq_len > 0:
             self.rope = RotaryPositionalEmbedding(
                 theta=rope_theta,
                 d_k=self.d_k,
@@ -400,6 +427,10 @@ class TransformerBlock(nn.Module):
         d_ff: int,
         max_seq_len: int = 0,
         rope_theta: float = 10000.0,
+        use_rmsnorm: bool = True,
+        norm_type: str = "pre",
+        use_rope: bool = True,
+        ffn_type: str = "swiglu",
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -410,20 +441,39 @@ class TransformerBlock(nn.Module):
             d_ff: 前馈网络内部维度
             max_seq_len: 最大序列长度
             rope_theta: RoPE 的 Theta 值
+            use_rmsnorm: 是否使用 RMSNorm (False = No Norm ablation)
+            norm_type: "pre" (default) or "post" normalization
+            use_rope: 是否使用 RoPE (False = NoPE ablation)
+            ffn_type: "swiglu" (default) or "silu"
             device: 存储参数的设备
             dtype: 参数的数据类型
         """
         super().__init__()
+        self.use_rmsnorm = use_rmsnorm
+        self.norm_type = norm_type
 
-        # RMSNorm
-        self.norm1 = RMSNorm(d_model, device=device, dtype=dtype)
-        self.norm2 = RMSNorm(d_model, device=device, dtype=dtype)
+        # RMSNorm (if enabled)
+        if use_rmsnorm:
+            self.norm1 = RMSNorm(d_model, device=device, dtype=dtype)
+            self.norm2 = RMSNorm(d_model, device=device, dtype=dtype)
+        else:
+            self.norm1 = None
+            self.norm2 = None
 
         # 多头自注意力
-        self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, rope_theta, device, dtype)
+        self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, rope_theta, use_rope, device, dtype)
 
-        # FFN (SwiGLU)
-        self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
+        # FFN
+        if ffn_type == "swiglu":
+            self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
+        elif ffn_type == "silu":
+            self.ffn = SiLUFFN(d_model, d_ff, device=device, dtype=dtype)
+        else:
+            raise ValueError(f"Unknown ffn_type: {ffn_type}")
+
+    def _apply_norm(self, norm, x):
+        """Apply norm if enabled, else return x unchanged."""
+        return norm(x) if norm is not None else x
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         """
@@ -439,11 +489,14 @@ class TransformerBlock(nn.Module):
             seq_len = einops.parse_shape(x, "... seq_len d_model")["seq_len"]
             token_positions = torch.arange(seq_len, device=x.device)
 
-        # Pre-norm + MHA + 残差
-        h = x + self.attn(self.norm1(x), token_positions=token_positions)
-
-        # Pre-norm + FFN + 残差
-        output = h + self.ffn(self.norm2(h))
+        if self.norm_type == "pre":
+            # Pre-norm: Norm -> Attn -> Add, Norm -> FFN -> Add
+            h = x + self.attn(self._apply_norm(self.norm1, x), token_positions=token_positions)
+            output = h + self.ffn(self._apply_norm(self.norm2, h))
+        else:
+            # Post-norm: Attn -> Add -> Norm, FFN -> Add -> Norm
+            h = self._apply_norm(self.norm1, x + self.attn(x, token_positions=token_positions))
+            output = self._apply_norm(self.norm2, h + self.ffn(h))
 
         return output
 
@@ -458,6 +511,10 @@ class TransformerLM(nn.Module):
         num_heads: int,
         d_ff: int,
         rope_theta: float = 10000.0,
+        use_rmsnorm: bool = True,
+        norm_type: str = "pre",
+        use_rope: bool = True,
+        ffn_type: str = "swiglu",
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -470,10 +527,16 @@ class TransformerLM(nn.Module):
             num_heads: 头数
             d_ff: 前馈网络内部维度
             rope_theta: RoPE 的 Theta 值
+            use_rmsnorm: 是否使用 RMSNorm (False = No Norm ablation)
+            norm_type: "pre" (default) or "post" normalization
+            use_rope: 是否使用 RoPE (False = NoPE ablation)
+            ffn_type: "swiglu" (default) or "silu"
             device: 存储参数的设备
             dtype: 参数的数据类型
         """
         super().__init__()
+        self.context_length = context_length
+        self.use_rmsnorm = use_rmsnorm
 
         # Token Embedding
         self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
@@ -481,13 +544,25 @@ class TransformerLM(nn.Module):
         # Transformer Blocks
         self.layers = nn.ModuleList(
             [
-                TransformerBlock(d_model, num_heads, d_ff, context_length, rope_theta, device, dtype)
+                TransformerBlock(
+                    d_model,
+                    num_heads,
+                    d_ff,
+                    context_length,
+                    rope_theta,
+                    use_rmsnorm,
+                    norm_type,
+                    use_rope,
+                    ffn_type,
+                    device,
+                    dtype,
+                )
                 for _ in range(num_layers)
             ]
         )
 
-        # Final LayerNorm
-        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+        # Final LayerNorm (optionally disabled)
+        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype) if use_rmsnorm else None
 
         # LM Head (输出投影)
         self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
@@ -510,8 +585,9 @@ class TransformerLM(nn.Module):
         for layer in self.layers:
             x = layer(x, token_positions)
 
-        # Final Norm
-        x = self.ln_final(x)
+        # Final Norm (optional)
+        if self.ln_final is not None:
+            x = self.ln_final(x)
 
         # LM Head → Logits
         logits = self.lm_head(x)  # (batch, seq, vocab_size)

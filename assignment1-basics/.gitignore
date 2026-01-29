@@ -161,3 +161,19 @@ cython_debug/
 
 .ruff_cache/
 *.zip
+# Experiments data (keep scripts, ignore runs)
+experiments/*/
+!experiments/*.py
+!experiments/*.sh
+!experiments/*.png
+
+# Output data
+output/
+
+# Checkpoints and logs
+checkpoints/
+runs/
+*.log
+*.pt
+*.pth
+*.npy
