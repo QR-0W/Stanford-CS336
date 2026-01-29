@@ -107,7 +107,7 @@
 
 - Python 3.10+
 - UV (推荐) 或 pip
-- CUDA (可选，用于 GPU 加速)
+- CUDA 13.0
 
 ### 安装
 
@@ -144,14 +144,14 @@ uv run pytest
 
 ### Assignment 1: Basics
 
-**状态**: 🚧 进行中
+**状态**: 🚀 已完成
 
 **主要任务**:
 
 - [x] 环境配置
 - [x] BPE Tokenizer 实现
-- [ ] Transformer 组件（RMSNorm, RoPE, Attention）
-- [ ] 完整语言模型训练
+- [x] Transformer 组件（RMSNorm, RoPE, Attention）
+- [x] 完整语言模型训练
 
 **学习笔记**: [Assignment 1 笔记](./docs/assignment1-notes.md)
 
