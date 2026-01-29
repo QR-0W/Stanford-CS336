@@ -82,7 +82,7 @@ TinyStories tokenizer (10k vocab) 对其验证集的压缩率为 4.03 bytes/toke
 
 **Q8.d** 
 
-uint16 是合适的选择，因为我们的最大词表大小为 32,000，完全在 uint16（0-65535）的表示范围内。相比默认的 int64（8 字节），使用 uint16（2 字节）可以节省 75% 的内存 and 存储空间，这对于处理数十 GB 的大规模数据集至关重要。
+uint16 是合适的选择，因为我们的最大词表大小为 32,000，完全在 uint16（0-65535）的表示范围内。相比默认的 int64（8 字节），使用 uint16（2 字节）可以节省 75% 的内存和存储空间，这对于处理数十 GB 的大规模数据集至关重要。
 
 # 3 Transformer 
 
@@ -268,3 +268,324 @@ FFN 部分消耗最多的 FLOPs，这是因为 FFN 部分涉及到三个大矩�
 | LM Head %   | 3.6%         | 1.8%          | ↓         |
 
 随着上下文长度的变成 16 倍，总消耗 FLOPs 变成了原来的 33 倍。主要是注意力机制消耗的 FLOPs 以平方量级变多。
+
+# 4 训练 Transformer LM
+
+我们现在已经完成了：通过 Tokenizer 完成预处理数据、实现 Transformer 模型。接下来，我们要编写支持训练的代码，这包括：Loss、Optimizer、Loops。
+
+## 4.1 交叉熵损失
+
+**Q20**
+
+实现交叉熵损失。
+
+根据教程公式 (16) 和 (17)，交叉熵损失定义为负对数似然:
+$$
+\ell = -\log p(y | \text{context})
+$$
+其中概率 $p$ 由 Softmax 函数给出:
+$$
+p(y | \text{context}) = \text{softmax}(o)_y = \frac{e^{o_y}}{\sum_{k=1}^{Vocab\_size} e^{o_k}}
+$$
+代入后得到：
+$$
+\ell = -\log \left( \frac{e^{o_y}}{\sum_{k=1}^{Vocab\_size} e^{o_k}} \right)
+$$
+为了减少计算量并避免精度损失，我们利用对数性质 $\log(\frac{a}{b}) = \log a - \log b$ 展开：
+$$
+\begin{aligned}
+
+\ell &= - \left[ \log(e^{o_y}) - \log \left( \sum_{k=1}^V e^{o_k} \right) \right] \\
+
+   &= - \left[ o_y - \log \left( \sum_{k=1}^V e^{o_k} \right) \right] \\
+
+   &= -o_y + \log \left( \sum_{k=1}^V e^{o_k} \right)
+
+\end{aligned}
+$$
+但是如果 $o_k$ 很大 (例如 100)，$e^{100}$ 会导致浮点数上溢，因此进一步优化：利用恒等式 $\log \sum e^{o_k} = m + \log \sum e^{o_k - m}$，其中 $m$ 是任意常数。通常取最大值 $m = \max(o)$。
+$$
+\begin{aligned}
+\log \left( \sum_{k=1}^V e^{o_k} \right) &= \log \left( \sum_{k=1}^V e^{o_k - m + m} \right) \\
+&= \log \left( \sum_{k=1}^V e^{m} \cdot e^{o_k - m} \right) \\
+&= \log \left( e^m \cdot \sum_{k=1}^V e^{o_k - m} \right) \\
+&= \log(e^m) + \log \left( \sum_{k=1}^V e^{o_k - m} \right) \\
+&= m + \log \left( \sum_{k=1}^V e^{o_k - m} \right)
+\end{aligned}
+$$
+这样所有指数项 $e^{o_k - m}$ 的指数部分都不超过 0，避免了上溢。
+
+因此，我们需要实现的是：
+$$
+\ell = \underbrace{-o_y}_{\text{Target Logit}} + \underbrace{m + \log \left( \sum_{k=1}^V e^{o_k - m} \right)}_{\text{Stable LogSumExp}}
+$$
+对应代码逻辑：
+
+1.  找出最大值 $m = \max(o)$
+2.  计算稳定 LogSumExp: $lse = m + log(sum(exp(o - m)))$
+3.  计算损失: $loss = -o[y] + lse$
+
+## 4.2 SGD 优化器
+
+**Q21**
+
+- **1e1 (10.0)**：损失函数收敛，但速度较慢（从 24.17 降至 3.25）。
+- **1e2 (100.0)**：损失函数迅速收敛，在第 5 次迭代时降至 0.00，表现最佳。这是因为你的 SGD 实现包含了 $1/\sqrt{t}$ 的衰减，虽然初始步长可能导致震荡（$w \to -w$），但由于衰减很快进入收敛区。
+- **1e3 (1000.0)**：损失函数发散（Diverge），数值迅速爆炸至 $10^{18}$ 数量级，说明学习率过大导致步长远超最优值，不断过冲并远离极小值点。
+
+## 4.3 AdamW 优化器
+
+**Q22**
+
+实现 AdamW 优化器。 
+
+初始化：$m_0 = 0$, $v_0 = 0$（与参数形状相同）
+
+对于每次迭代 $t = 1, 2, ..., T$:
+
+1. $g \leftarrow \nabla_\theta \mathcal{L}(\theta; B_t)$ — 计算梯度
+2. $m \leftarrow \beta_1 m + (1 - \beta_1) g$ — 一阶矩估计（动量）
+3. $v \leftarrow \beta_2 v + (1 - \beta_2) g^2$ — 二阶矩估计（平方梯度的 EMA）
+4. $\alpha_t \leftarrow \alpha \cdot \frac{\sqrt{1 - \beta_2^t}}{1 - \beta_1^t}$ — 偏置校正后的学习率
+5. $\theta \leftarrow \theta - \alpha_t \cdot \frac{m}{\sqrt{v} + \epsilon}$ — 参数更新
+6. $\theta \leftarrow \theta - \alpha \lambda \theta$ — 权重衰减（decoupled）
+
+**Q23.a**
+
+使用 **float32**，意味着每个值 4 字节。定义符号如下：
+
+- $V$ = vocab_size
+- $S$ = context_length
+- $L$ = num_layers
+- $d$ = d_model
+- $H$ = num_heads
+- $d_{ff}$ = d_ff (通常 = $4d$)
+- $B$ = batch_size
+
+首先计算参数量 $P$。
+
+| 组件                         | 参数量                   |
+| :--------------------------- | :----------------------- |
+| Token Embedding              | $V \cdot d$              |
+| Per Layer: Q/K/V Projection  | $3 \cdot d \cdot d$      |
+| Per Layer: Output Projection | $d \cdot d$              |
+| Per Layer: RMSNorm (×2)      | $2 \cdot d$              |
+| Per Layer: FFN w1, w3        | $2 \cdot d \cdot d_{ff}$ |
+| Per Layer: FFN w2            | $d_{ff} \cdot d$         |
+| Final RMSNorm                | $d$                      |
+| LM Head                      | $d \cdot V$              |
+
+$$\boxed{P = 2Vd + L(4d^2 + 3d \cdot d_{ff} + 2d) + d}$$ ->$4P$ 字节
+
+**梯度内存**
+
+每个参数有一个梯度，形状相同。总参数量为 P ->$4P$ 字节
+
+**优化器状态内存**
+
+AdamW 存储 $m$ 和 $v$，各与参数等大，总参数量为 2P -> $8P$ 字节
+
+**激活值内存 $A$**
+
+| 组件                       | 形状             | 元素数     |
+| :------------------------- | :--------------- | :--------- |
+| **每层 Transformer Block** |                  |            |
+| RMSNorm 输入 (×2)          | $(B, S, d)$ ×2   | $2BSd$     |
+| Q, K, V 投影输出           | $(B, S, d)$ ×3   | $3BSd$     |
+| Q @ K^T scores             | $(B, H, S, S)$   | $BHS^2$    |
+| Softmax 输出               | $(B, H, S, S)$   | $BHS^2$    |
+| Attention @ V              | $(B, H, S, d/H)$ | $BSd$      |
+| Output Projection          | $(B, S, d)$      | $BSd$      |
+| FFN w1 输出                | $(B, S, d_{ff})$ | $BSd_{ff}$ |
+| SiLU(w1)                   | $(B, S, d_{ff})$ | $BSd_{ff}$ |
+| FFN w3 输出                | $(B, S, d_{ff})$ | $BSd_{ff}$ |
+| FFN w2 输出                | $(B, S, d)$      | $BSd$      |
+| **全局**                   |                  |            |
+| Final RMSNorm              | $(B, S, d)$      | $BSd$      |
+| Output Embedding (logits)  | $(B, S, V)$      | $BSV$      |
+| Cross-Entropy (targets等)  | $(B, S)$         | $BS$       |
+
+每层激活： $$A_{layer} = 8BSd + 2BHS^2 + 3BSd_{ff}$$ -> 总激活： $$\boxed{A = L \cdot (8BSd + 2BHS^2 + 3BSd_{ff}) + BSd + BSV + BS}$$ -> 激活内存：$4A$ 字节
+
+**总峰值内存**
+
+$$\boxed{\text{Memory}_{peak} = 4P + 4P + 8P + 4A = 16P + 4A}$$
+
+展开：
+
+$$\text{Memory}_{peak} = 16 \cdot \left[ 2Vd + L(4d^2 + 3d \cdot d*{ff} + 2d) + d \right]$$ $$+ 4 \cdot \left[ L(8BSd + 2BHS^2 + 3BSd_{ff}) + BSd + BSV + BS \right]$$
+
+化简有
+
+$$\boxed{\text{Memory} = 16P + 4BS \cdot \left[ L(8d + 2HS + 3d_{ff}) + d + V + 1 \right]}$$
+
+**Q23.b**
+
+对 GPT-2 XL，已知：
+
+- $P \approx 2.13 \times 10^9$
+- $V = 50257$, $S = 1024$, $L = 48$, $d = 1600$, $H = 25$, $d_{ff} = 6400$
+
+- 激活开销（与 batch 成正比）：
+- 每层激活元素： $$6 \cdot S \cdot d + 2 \cdot H \cdot S^2 + 3 \cdot S \cdot d_{ff} = 6 \cdot 1024 \cdot 1600 + 2 \cdot 25 \cdot 1024^2 + 3 \cdot 1024 \cdot 6400$$ $$= 9.83M + 52.4M + 19.7M \approx 82M$$
+- 总激活（48层）：$48 \times 82M + 1024 \times 1600 + 1024 \times 50257 \approx 4B$ per batch element
+- 激活内存 = $4 \times 4B \times B$ bytes = $16B$ GB (where $B$ is batch size)
+- 求解： $$31.7 + 16B \leq 80$$ $$B \leq 3$$，也即 $$\boxed{\text{max batch\_size} \approx 3}$$
+
+**Q23.c**
+
+对于 AdamW 一步的 FLOPs，已知 AdamW 对每个参数执行：
+
+1. $m = \beta_1 m + (1-\beta_1)g$ → **3 FLOPs** (mul, sub, mul-add)
+2. $v = \beta_2 v + (1-\beta_2)g^2$ → **4 FLOPs** (square, mul, sub, mul-add)
+3. $\alpha_t$ 计算 → 常数（忽略）
+4. $\theta = \theta - \alpha_t \cdot m / (\sqrt{v} + \epsilon)$ → **4 FLOPs** (sqrt, add, div, mul-sub)
+5. $\theta = \theta - \alpha\lambda\theta$ → **2 FLOPs** (mul, sub)
+
+总计：$\approx 13$ FLOPs per parameter
+
+$$\boxed{\text{FLOPs}_{AdamW} \approx 13P}$$
+
+感觉似乎不对，不过问 AI 说是：“<u>精确数字不那么重要，重要的是**数量级**：$$\text{FLOPs}_{AdamW} = O(P)$$。</u>
+
+<u>即 AdamW 的 FLOPs 与参数量成正比，远小于前向/后向传播（$O(P \cdot S)$），所以在总训练成本中通常**可以忽略**。</u>”
+
+**Q23.d**
+
+已知A100 峰值: 19.5 TFLOP/s (float32)、50% MFU、400K steps、batch_size=1024、后向传播 FLOPs = 2× 前向传播。
+
+- 前向 FLOPs（之前计算）：$\approx 4.51$ TFLOPs per sequence
+- 每步 FLOPs： $$\text{FLOPs/step} = \text{batch\_size} \times (\text{forward} + \text{backward})$$ $$= 1024 \times (4.51 + 2 \times 4.51) \text{ TFLOPs} = 1024 \times 13.53 \text{ TFLOPs} \approx 13,855 \text{ TFLOPs}$$
+- 总 FLOPs： $$400000 \times 13855 \times 10^{12} = 5.54 \times 10^{21} \text{ FLOPs}$$
+- 实际吞吐量： $$19.5 \times 0.5 = 9.75 \text{ TFLOP/s}$$
+- 训练时间： $$\frac{5.54 \times 10^{21}}{9.75 \times 10^{12}} = 5.68 \times 10^8 \text{ seconds} \approx 6580 \text{ days}$$ $$\boxed{\approx 18 年}$$
+
+## 4.4 学习率调度
+
+**Q24**
+
+实现带预热的余弦学习率调度
+
+## 4.5 梯度裁切
+
+**Q25**
+
+实现梯度裁切
+
+# 5 训练循环
+
+## 5.1 数据加载器
+
+**Q26**
+
+实现数据加载
+
+## 5.2 检查点
+
+**Q27**
+
+实现模型检查点
+
+## 5.3 训练循环
+
+**Q28**
+
+整合
+
+# 6 文本生成
+
+**Q29**
+
+实现解码功能
+
+# 7 实验
+
+是时候将一切整合在一起，并在数据集上训练一个小型语言模型了。
+
+## 7.1 运行与交付
+
+**Q30**
+
+实现实验日志记录
+
+## 7.2 TinyStories
+
+**Q31.a**
+
+采用了**对数均匀网格搜索**（log-uniform grid search）策略来确定最优学习率。
+
+选取的候选范围跨越了 $10^{-5}$ 到 $10^{-2}$（具体为 $1\times10^{-5}, 3\times10^{-5}, \dots, 1\times10^{-2}$），以覆盖多个数量级。
+
+目标是找到最高的稳定学习率（即**稳定边缘**），以便在不导致发散的前提下最大化收敛速度。
+
+![image-20260129110305901](./assets/image-20260129110305901.png)
+
+![image-20260129110334367](./assets/image-20260129110334367.png)
+
+采用之前实现的调度器等，实现了 Loss < 1.45。
+
+![image-20260129123310310](./assets/image-20260129123310310.png)
+
+**Q31.b**
+
+| Learning Rate | Train Loss |  Val Loss  |   评价   |
+| :-----------: | :--------: | :--------: | :------: |
+|     1e-05     |   3.0606   |   3.1288   | 收敛太慢 |
+|     1e-04     |   2.3212   |   2.1084   |   正常   |
+|     3e-04     |   1.7841   |   1.8516   |   不错   |
+|   **1e-03**   | **1.8869** | **1.7658** | **最佳** |
+|     3e-03     |   1.8823   |   1.8837   | 开始退化 |
+|     1e-02     |   2.0004   |   2.1229   | 明显变差 |
+
+注意 1e-02，虽然没有完全发散，但 Loss 明显上升，说明接近了稳定边缘。
+
+**Q32**
+
+生成文本
+
+> Once upon a time there was a little girl named Lily. She loved to play with her friends and do lots of things. One day she heard a loud noise coming from the sky and she got very scared. She started to run away but her friends were watching her. They shouted, "Lily, don't worry! It's just the wind and the birds singing!"
+>
+> Lily felt very brave and asked her friends if they could help. They all said yes and all began to look up at the sky. Lily was so excited that she wanted to help.
+>
+> Soon the wind started to blow and suddenly, it started to rain and the birds flew away. Lily was very scared, but then she saw something beautiful. It was a rainbow! She ran to the rainbow and picked it up. It was so beautiful!
+>
+> Lily was so happy that she had helped someone in need. She thanked her friends for helping her and they all went home. The little girl and her friends had the best day ever.
+
+影响输出质量的因素：
+
+- **Temperature (0.8)**: 提供了足够的随机性，让故事不至于死板（不仅仅是选择概率最大的词），同时又没有高到让逻辑崩坏。
+- **Nucleus Sampling (Top-p 0.95)**: 有效截断了长尾低概率词，防止生成生僻或不通顺的词，保证了文本的连贯性。
+
+## 7.3 消融实验与架构修改
+
+**Q33-35**
+
+| 实验                                        | Val Loss | vs Baseline |
+| :------------------------------------------ | :------: | :---------: |
+| **Baseline** (Pre-Norm+RMSNorm+RoPE+SwiGLU) | **1.39** |      -      |
+| No RMSNorm (LR=1e-3)                        |   1.55   |    +12%     |
+| No RMSNorm (LR=1e-4)                        |   1.86   |    +34%     |
+| Post-Norm                                   |   1.50   |     +8%     |
+| NoPE (No Position)                          |   1.57   |    +13%     |
+| SiLU FFN (param-matched)                    |   1.52   |     +9%     |
+
+1. **RMSNorm**: 非常关键。移除后训练不稳定，降低 LR 反而更差。
+2. **Pre-Norm > Post-Norm**: 8% 优势，梯度流更顺畅。
+3. **RoPE 必不可少**: 无位置信息损失 13%。
+4. **SwiGLU > SiLU**: 即使参数对齐，SwiGLU 的门控机制仍提供 9% 优势。
+
+## 7.4 在 OpenWebText 上运行
+
+**Q36**
+
+在 OWT 上训练
+
+| Dataset         | Vocab Size | Final Val Loss | Perplexity |
+| :-------------- | :--------: | :------------: | :--------: |
+| **TinyStories** |    10k     |    **1.39**    |    ~4.0    |
+| **OpenWebText** |    32k     |    **3.93**    |   ~51.0    |
+
+OWT 的 Loss 显著更高 (+2.54)。这主要是因为更大的词表（随机基准 Loss 高 +1.15）以及数据本身的极高复杂度和多样性。
+
+OWT 模型生成的文本局部通顺（语法正确），但缺乏长期逻辑（因为模型容量小且训练时间短）。
+
