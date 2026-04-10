@@ -1,1 +1,0 @@
-{"tag": "size-small_ctx-128_mode-forward", "size": "small", "context_length": 128, "mode": "forward", "profile_returncode": 0, "rep_file": "results/nsys_profile_smoke2/raw/size-small_ctx-128_mode-forward.nsys-rep", "benchmark_json": "results/nsys_profile_smoke2/logs/size-small_ctx-128_mode-forward.benchmark.json"}

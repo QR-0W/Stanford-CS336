@@ -61,6 +61,9 @@ Thumbs.db
 assignment2-systems/results/**/raw/*.nsys-rep
 assignment2-systems/results/**/raw/*.sqlite
 
+# Benchmark/profiling artifacts
+**/results/**
+
 # Agents
 .omx/
 *.codex
