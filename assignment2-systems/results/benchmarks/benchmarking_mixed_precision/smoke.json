@@ -1,0 +1,87 @@
+{
+  "config": {
+    "sizes": [
+      "small"
+    ],
+    "vocab_size": 10000,
+    "batch_size": 4,
+    "context_length": 256,
+    "warmup_steps": 1,
+    "measure_steps": 1,
+    "device": "cuda"
+  },
+  "toy_model_fp16_autocast": {
+    "param_dtype": "torch.float32",
+    "fc1_output_dtype": "torch.float16",
+    "ln_output_dtype": "torch.float32",
+    "logits_dtype": "torch.float16",
+    "loss_dtype": "torch.float32",
+    "grad_dtype": "torch.float32"
+  },
+  "size_benchmarks": [
+    {
+      "size": "small",
+      "mode": "forward",
+      "precision": "full_fp32",
+      "batch_size": 4,
+      "context_length": 256,
+      "vocab_size": 10000,
+      "warmup_steps": 1,
+      "measure_steps": 1,
+      "status": "ok",
+      "timings_seconds": [
+        0.02174287299567368
+      ],
+      "mean_seconds": 0.02174287299567368,
+      "std_seconds": NaN
+    },
+    {
+      "size": "small",
+      "mode": "forward",
+      "precision": "mixed_bf16",
+      "batch_size": 4,
+      "context_length": 256,
+      "vocab_size": 10000,
+      "warmup_steps": 1,
+      "measure_steps": 1,
+      "status": "ok",
+      "timings_seconds": [
+        0.012212171001010574
+      ],
+      "mean_seconds": 0.012212171001010574,
+      "std_seconds": NaN
+    },
+    {
+      "size": "small",
+      "mode": "backward",
+      "precision": "full_fp32",
+      "batch_size": 4,
+      "context_length": 256,
+      "vocab_size": 10000,
+      "warmup_steps": 1,
+      "measure_steps": 1,
+      "status": "ok",
+      "timings_seconds": [
+        0.04228058300213888
+      ],
+      "mean_seconds": 0.04228058300213888,
+      "std_seconds": NaN
+    },
+    {
+      "size": "small",
+      "mode": "backward",
+      "precision": "mixed_bf16",
+      "batch_size": 4,
+      "context_length": 256,
+      "vocab_size": 10000,
+      "warmup_steps": 1,
+      "measure_steps": 1,
+      "status": "ok",
+      "timings_seconds": [
+        0.02559763699537143
+      ],
+      "mean_seconds": 0.02559763699537143,
+      "std_seconds": NaN
+    }
+  ]
+}

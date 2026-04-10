@@ -14,6 +14,8 @@ This directory is organized as follows:
   `cs336_basics` and its associated `pyproject.toml`. This module contains the staff 
   implementation of the language model from assignment 1. If you want to use your own 
   implementation, you can replace this directory with your own implementation.
+  In this workspace, `pyproject.toml` is already configured to point at
+  `../assignment1-basics`, so lab 2 reuses your assignment 1 code directly.
 - [`./cs336_systems`](./cs336_systems): This folder is basically empty! This is the
   module where you will implement your optimized Transformer language model. 
   Feel free to take whatever code you need from assignment 1 (in `cs336-basics`) and copy it 

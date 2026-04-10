@@ -1,0 +1,28 @@
+{
+  "mode": "forward",
+  "size": "2.7b",
+  "batch_size": 4,
+  "context_length": 1024,
+  "vocab_size": 10000,
+  "warmup_steps": 5,
+  "measure_steps": 10,
+  "device": "cuda",
+  "dtype": "torch.float32",
+  "enable_nvtx": true,
+  "optimizer": null,
+  "num_parameters": 3406809600,
+  "timings_seconds": [
+    0.7997611859900644,
+    0.8005236800090643,
+    0.8016218309930991,
+    0.8023877520026872,
+    0.8034413349960232,
+    0.8045304609986488,
+    0.8051743070100201,
+    0.8058788749913219,
+    0.8060960980074015,
+    0.8068205769959604
+  ],
+  "mean_seconds": 0.8036236101994291,
+  "std_seconds": 0.002466275387705505
+}

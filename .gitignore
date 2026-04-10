@@ -58,4 +58,9 @@ Thumbs.db
 # Large Output Files (keep JSONs/logs, ignore binaries)
 **/output/*.npy
 **/output/*.bin
+assignment2-systems/results/**/raw/*.nsys-rep
+assignment2-systems/results/**/raw/*.sqlite
 
+# Agents
+.omx/
+*.codex

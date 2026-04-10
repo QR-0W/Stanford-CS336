@@ -1,0 +1,18 @@
+{
+  "mode": "forward",
+  "size": "small",
+  "batch_size": 4,
+  "context_length": 256,
+  "vocab_size": 10000,
+  "warmup_steps": 0,
+  "measure_steps": 1,
+  "device": "cpu",
+  "dtype": "torch.float32",
+  "num_parameters": 128625408,
+  "timings_seconds": [
+    0.22118863400010014
+  ],
+  "mean_seconds": 0.22118863400010014,
+  "std_seconds": NaN,
+  "status": "ok"
+}

@@ -1,0 +1,44 @@
+{
+  "config": {
+    "size": "2.7b",
+    "context_lengths": [
+      512
+    ],
+    "modes": [
+      "forward"
+    ],
+    "precisions": [
+      "full_fp32"
+    ],
+    "vocab_size": 10000,
+    "batch_size": 4,
+    "rope_theta": 10000.0,
+    "warmup_steps": 3,
+    "memory_history_max_entries": 1000000,
+    "capture_history_from_init": false,
+    "device": "cuda",
+    "seed": 42,
+    "optimizer": "cs336_adamw",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "eps": 1e-08,
+    "output_dir": "results/memory_profiling/isolated_ctx512_full"
+  },
+  "results": [
+    {
+      "size": "2.7b",
+      "context_length": 512,
+      "mode": "forward",
+      "precision": "full_fp32",
+      "status": "ok",
+      "elapsed_seconds": 0.34624851899570785,
+      "peak_allocated_bytes": 14418491392,
+      "peak_reserved_bytes": 14506000384,
+      "peak_allocated_mb": 13750.544921875,
+      "peak_reserved_mb": 13834.0,
+      "snapshot_path": "results/memory_profiling/isolated_ctx512_full/snapshots/size-2.7b_ctx-512_mode-forward_precision-full_fp32.pickle"
+    }
+  ]
+}

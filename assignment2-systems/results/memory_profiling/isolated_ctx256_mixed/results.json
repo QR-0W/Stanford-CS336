@@ -1,0 +1,44 @@
+{
+  "config": {
+    "size": "2.7b",
+    "context_lengths": [
+      256
+    ],
+    "modes": [
+      "forward"
+    ],
+    "precisions": [
+      "mixed_bf16"
+    ],
+    "vocab_size": 10000,
+    "batch_size": 4,
+    "rope_theta": 10000.0,
+    "warmup_steps": 3,
+    "memory_history_max_entries": 1000000,
+    "capture_history_from_init": false,
+    "device": "cuda",
+    "seed": 42,
+    "optimizer": "cs336_adamw",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "eps": 1e-08,
+    "output_dir": "results/memory_profiling/isolated_ctx256_mixed"
+  },
+  "results": [
+    {
+      "size": "2.7b",
+      "context_length": 256,
+      "mode": "forward",
+      "precision": "mixed_bf16",
+      "status": "ok",
+      "elapsed_seconds": 0.057942145998822525,
+      "peak_allocated_bytes": 20604809216,
+      "peak_reserved_bytes": 21464350720,
+      "peak_allocated_mb": 19650.27734375,
+      "peak_reserved_mb": 20470.0,
+      "snapshot_path": "results/memory_profiling/isolated_ctx256_mixed/snapshots/size-2.7b_ctx-256_mode-forward_precision-mixed_bf16.pickle"
+    }
+  ]
+}
