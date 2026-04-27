@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Tuple
+from typing import Callable, Tuple
 
 import torch
 
@@ -15,6 +15,7 @@ except Exception:  # pragma: no cover - allows CPU-only test environments
 
 _DEFAULT_Q_TILE = 64
 _DEFAULT_K_TILE = 64
+_BACKWARD_FN_CACHE: dict[bool, Callable[..., Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]] = {}
 
 
 def _validate_inputs(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> None:
@@ -84,20 +85,86 @@ def _flash_attention_forward_tiled_pytorch(
     return out, lse
 
 
+def _flash_attention_backward_core(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    o: torch.Tensor,
+    do: torch.Tensor,
+    lse: torch.Tensor,
+    is_causal: bool,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Eq. 13-19 style backward with recomputation from Q, K, V and L.
+    # Inputs are [B, T, D] (single-head simplified attention for this assignment section).
+    d = q.shape[-1]
+    scale = 1.0 / math.sqrt(d)
+
+    s = torch.matmul(q.to(torch.float32), k.to(torch.float32).transpose(-1, -2)) * scale
+    if is_causal:
+        t_q = q.shape[1]
+        t_k = k.shape[1]
+        q_idx = torch.arange(t_q, device=q.device)
+        k_idx = torch.arange(t_k, device=q.device)
+        causal = q_idx[:, None] >= k_idx[None, :]
+        s = s.masked_fill(~causal.unsqueeze(0), -1e6)
+
+    p = torch.exp(s - lse.to(torch.float32).unsqueeze(-1))
+    if is_causal:
+        p = p.masked_fill(~causal.unsqueeze(0), 0.0)
+
+    dO = do.to(torch.float32)
+    O = o.to(torch.float32)
+    V = v.to(torch.float32)
+    Q = q.to(torch.float32)
+    K = k.to(torch.float32)
+
+    # D = rowsum(dO * O), shape [B, T]
+    D_vec = torch.sum(dO * O, dim=-1)
+
+    dV = torch.matmul(p.transpose(-1, -2), dO)
+    dP = torch.matmul(dO, V.transpose(-1, -2))
+    dS = p * (dP - D_vec.unsqueeze(-1))
+    if is_causal:
+        dS = dS.masked_fill(~causal.unsqueeze(0), 0.0)
+
+    dQ = torch.matmul(dS, K) * scale
+    dK = torch.matmul(dS.transpose(-1, -2), Q) * scale
+
+    return dQ.to(q.dtype), dK.to(k.dtype), dV.to(v.dtype)
+
+
+def _get_backward_fn(is_causal: bool):
+    cached = _BACKWARD_FN_CACHE.get(bool(is_causal))
+    if cached is not None:
+        return cached
+
+    def eager_fn(q, k, v, o, do, lse):
+        return _flash_attention_backward_core(q=q, k=k, v=v, o=o, do=do, lse=lse, is_causal=is_causal)
+
+    if not hasattr(torch, "compile"):
+        _BACKWARD_FN_CACHE[bool(is_causal)] = eager_fn
+        return eager_fn
+
+    try:
+        compiled_fn = torch.compile(eager_fn, fullgraph=False)
+        _BACKWARD_FN_CACHE[bool(is_causal)] = compiled_fn
+        return compiled_fn
+    except Exception:
+        _BACKWARD_FN_CACHE[bool(is_causal)] = eager_fn
+        return eager_fn
+
+
 def _flash_attention_backward_recompute(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
+    o: torch.Tensor,
     do: torch.Tensor,
+    lse: torch.Tensor,
     is_causal: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    with torch.enable_grad():
-        q_re = q.detach().requires_grad_(True)
-        k_re = k.detach().requires_grad_(True)
-        v_re = v.detach().requires_grad_(True)
-        o_re, _ = _flash_attention_forward_tiled_pytorch(q_re, k_re, v_re, is_causal=is_causal)
-        dq, dk, dv = torch.autograd.grad(o_re, (q_re, k_re, v_re), do, create_graph=False, retain_graph=False)
-    return dq, dk, dv
+    backward_fn = _get_backward_fn(is_causal=bool(is_causal))
+    return backward_fn(q, k, v, o, do, lse)
 
 
 class FlashAttention2PyTorch(torch.autograd.Function):
@@ -110,8 +177,16 @@ class FlashAttention2PyTorch(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do: torch.Tensor):
-        _lse, q, k, v, _out = ctx.saved_tensors
-        dq, dk, dv = _flash_attention_backward_recompute(q=q, k=k, v=v, do=do, is_causal=ctx.is_causal)
+        lse, q, k, v, out = ctx.saved_tensors
+        dq, dk, dv = _flash_attention_backward_recompute(
+            q=q,
+            k=k,
+            v=v,
+            o=out,
+            do=do,
+            lse=lse,
+            is_causal=ctx.is_causal,
+        )
         return dq, dk, dv, None
 
 
@@ -257,6 +332,14 @@ class FlashAttention2Triton(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do: torch.Tensor):
-        _lse, q, k, v, _out = ctx.saved_tensors
-        dq, dk, dv = _flash_attention_backward_recompute(q=q, k=k, v=v, do=do, is_causal=ctx.is_causal)
+        lse, q, k, v, out = ctx.saved_tensors
+        dq, dk, dv = _flash_attention_backward_recompute(
+            q=q,
+            k=k,
+            v=v,
+            o=out,
+            do=do,
+            lse=lse,
+            is_causal=ctx.is_causal,
+        )
         return dq, dk, dv, None
