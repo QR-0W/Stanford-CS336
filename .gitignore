@@ -64,6 +64,12 @@ assignment2-systems/results/**/raw/*.sqlite
 # Benchmark/profiling artifacts
 **/results/**
 
-# Agents
-.omx/
+# Kilo agent configs / local state
+.kilo/
 *.codex
+
+# Session exports (local paths, env configs)
+session-*.md
+
+# VS Code workspace files (SSH proxy, local paths)
+*.code-workspace
