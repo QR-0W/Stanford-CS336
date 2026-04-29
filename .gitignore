@@ -64,8 +64,9 @@ assignment2-systems/results/**/raw/*.sqlite
 # Benchmark/profiling artifacts
 **/results/**
 
-# Kilo agent configs / local state
+# Agent configs / local state
 .kilo/
+.omx/
 *.codex
 
 # Session exports (local paths, env configs)
