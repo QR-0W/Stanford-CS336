@@ -5,6 +5,8 @@ description = "CS 336 Assignment 3: Scaling Laws"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.10.0",
+    "numpy>=2.0.0",
     "requests>=2.32.3",
     "torch>=2.7.0",
 ]
@@ -15,4 +17,4 @@ python-preference = "managed"
 
 
 [tool.setuptools.packages.find]
-include = ["cs336_basics"]
+include = ["cs336_scaling"]
