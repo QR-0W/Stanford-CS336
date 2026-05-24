@@ -46,6 +46,7 @@ Thumbs.db
 .directory
 
 # Model checkpoints (can be large)
+*.bin
 *.pt
 *.pth
 *.ckpt
@@ -54,6 +55,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+*.part
+
+# Assignment 4 local model/data assets
+assignment4-data/cs336_data/assets/
 
 # Large Output Files (keep JSONs/logs, ignore binaries)
 **/output/*.npy
