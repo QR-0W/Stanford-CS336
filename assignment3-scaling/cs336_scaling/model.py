@@ -1,3 +1,13 @@
+"""用于 Scaling Laws 实验的 GPT-2 风格 Transformer 语言模型。
+
+与作业 1/4 的 ``BasicsTransformerLM`` 架构一致，使用 RMSNorm、RoPE、
+Multi-Head Causal Attention 和 SwiGLU FFN。模型权重按 scaling 配置参数
+（d_model、num_layers、num_heads、d_ff）决定大小。
+
+提供了 ``non_embedding_params`` 属性用于 scaling law 分析，
+以及 JSON 序列化/反序列化支持。
+"""
+
 from __future__ import annotations
 
 import json

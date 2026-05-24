@@ -1,3 +1,18 @@
+"""Scaling Law 实验的模型与训练配置。
+
+Defines:
+    - ``ModelShape``: (num_layers, d_model, num_heads) 三元组。
+    - ``TrainingConfig``: 完整训练配置（shape + batch_size + lr + FLOPs）。
+    - ``ALLOWED_TRAIN_FLOPS``: API 允许的离散 FLOPs 取值列表。
+    - ``estimate_non_embedding_params``: 从 num_layers, d_model 估算
+      非 embedding 参数量（公式来自作业 handout）。
+
+d_ff 计算规则（作业 handout）：
+    d_ff = floor(d_model * 8/3 / 64) * 64
+
+head 数必须整除 d_model。
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

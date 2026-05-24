@@ -1,3 +1,14 @@
+"""Stanford Scaling API 客户端。
+
+通过 HTTP 请求 Stanford Hyperturing 集群上的隐藏训练 API
+（``http://hyperturing.stanford.edu:8000``），提交训练配置并获取
+模型在指定 FLOPs 预算下的训练 loss。API key 通过环境变量
+``CS336_SCALING_API_KEY`` 传入（SSH public key）。
+
+提供：查询总 FLOPs 使用量、历史 runs、单个配置 loss 查询，
+以及本地 run 数据的去重合并工具。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,9 @@
+"""生成 Scaling Law 查询计划并输出为 JSON/Markdown。
+
+打印各阶段的总 FLOPs 预算、config 数量和分配策略摘要，
+便于人工审查实验设计后再提交查询。
+"""
+
 from __future__ import annotations
 
 import argparse

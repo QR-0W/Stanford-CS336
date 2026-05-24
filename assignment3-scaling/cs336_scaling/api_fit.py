@@ -1,3 +1,14 @@
+"""从 API 返回的 runs 数据中拟合 Scaling Law。
+
+步骤：
+    1. 按 train_flops 分组，每组选最低 loss 的配置。
+    2. 用 L-BFGS-B 拟合三参数 power-law：
+       loss(C) = irreducible_loss + coefficient * C^exponent
+    3. 类似对 N_opt(C) 拟合 model size scaling：
+       N_opt(C) = coefficient * C^exponent
+    4. 用拟合结果外推更大计算预算下的最优配置。
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

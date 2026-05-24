@@ -1,3 +1,12 @@
+"""本地合成训练 API（Scaling Law 自学版 surrogate）。
+
+因为官方 API 需要 Stanford 网络和 SSH key，这里提供了一个确定性的
+Chinchilla 风格 surrogate：loss = irreducible_loss + A/N^α + B/D^β，
+加上学习率/batch size/模型形状的惩罚项和确定性噪声。
+
+用于自学 Scaling Laws 方法论的实验设计、IsoFLOPs 构造和拟合流程。
+"""
+
 from __future__ import annotations
 
 import hashlib

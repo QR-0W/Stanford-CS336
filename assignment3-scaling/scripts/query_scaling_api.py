@@ -1,3 +1,11 @@
+"""查询官方 Stanford Scaling API。
+
+执行 scaling_plan 中定义的查询计划，将结果保存到 ``api_runs.json``。
+每个配置按 plan 中的总预算限制和已有结果去重后查询。
+
+需要在 Stanford 网络/VPN 环境下运行，且需设置 CS336_SCALING_API_KEY。
+"""
+
 from __future__ import annotations
 
 import argparse

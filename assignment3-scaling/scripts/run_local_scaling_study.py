@@ -1,3 +1,12 @@
+"""本地 Scaling Laws 实验运行脚本。
+
+使用 ``LocalTrainingApi``（Chinchilla 风格 surrogate）替代官方 API，
+执行与标准作业相同的实验流程：
+    1. 构建 query plan（pilot + isoflops + high-compute）
+    2. 对每个配置调用本地 API 获得 loss
+    3. 保存为 ``local_runs.json``
+"""
+
 from __future__ import annotations
 
 import argparse

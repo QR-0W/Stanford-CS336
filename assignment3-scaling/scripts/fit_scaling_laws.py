@@ -1,3 +1,14 @@
+"""从 runs 数据中拟合 Scaling Law 并生成图表。
+
+输入：``local_runs.json`` 或 ``api_runs.json``。
+输出：
+    - ``api_loss_fit.png``：loss vs compute 的 power-law 拟合。
+    - ``api_model_size_fit.png``：N_opt vs compute 的 power-law 拟合。
+    - ``api_scaling_fit_summary.json``：拟合参数和外推结果。
+
+使用 scipy.optimize.minimize (L-BFGS-B) 进行非线性最小二乘拟合。
+"""
+
 from __future__ import annotations
 
 import argparse

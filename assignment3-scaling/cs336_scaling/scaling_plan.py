@@ -1,3 +1,13 @@
+"""Scaling Law 实验的查询计划构建。
+
+设计多阶段实验：
+    1. ``pilot_hparams``: 低成本扫描 batch_size 和 learning rate。
+    2. ``stage1_isoflops``: 在不同 FLOPs 预算下扫描模型大小。
+    3. ``stage2_high_compute``: 高 FLOPs 补充外推点。
+
+总 FLOPs 预算受限（作业要求不超过 ~2e18 FLOPs），需精心分配。
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict

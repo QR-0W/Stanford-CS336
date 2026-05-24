@@ -1,3 +1,15 @@
+"""IsoFLOPs 曲线分析与 Power-Law 拟合。
+
+核心功能：
+    - ``fit_power_law``: 用 L-BFGS-B 拟合 power-law 函数 f(x) = a * x^b。
+    - ``select_isoflops_optima``: 在每个 FLOPs 预算下选择最低 loss 的模型。
+    - ``IsoFlopsOptimum``: 记录计算最优点的参数数、token 数、loss。
+
+IsoFLOPs 方法学：在不同计算预算（如 1e13 ~ 1e18 FLOPs）下训练多个
+不同大小的模型，每个预算下取最优 loss 的模型大小作为该预算下的
+"计算最优"（compute-optimal）配置，进而通过 power-law 外推更大预算。
+"""
+
 from __future__ import annotations
 
 import json

@@ -1,3 +1,13 @@
+"""Chinchilla 计算最优配置分析。
+
+用于回答作业 §3.1 的问题：
+    - 使用已有的 IsoFLOPs 数据拟合 N_opt(C) 和 loss(C) scaling law。
+    - 外推 10^23, 10^24 FLOPs 下的最优模型大小和数据集 token 数。
+    - 生成 model_size_scaling 和 dataset_size_scaling 图。
+
+IsoFLOPs 方法来源：Hoffmann et al. (2022) "Training Compute-Optimal Large Language Models"。
+"""
+
 from __future__ import annotations
 
 import argparse
