@@ -1,3 +1,10 @@
+"""Flash Attention 2 性能基准测试。
+
+对比 PyTorch 原生注意力、Flash Attention (PyTorch) 和
+Flash Attention (Triton) 在不同序列长度和 head 维度下的
+前向/反向耗时，分析 Flash Attention 的内存复杂度优势。
+"""
+
 from __future__ import annotations
 
 import argparse

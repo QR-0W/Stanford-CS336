@@ -1,3 +1,14 @@
+"""端到端模型级基准测试脚本。
+
+对 GPT-2 不同尺寸 (small/medium/large/xl/2.7B) 模型在
+FP32/BF16 精度下测量前向和反向传播时间 (warmup + measure)。
+
+包含：
+    - 单步前向/反向耗时测量
+    - 混合精度 (autocast + bfloat16) 对比
+    - torch.compile 性能测试
+"""
+
 from __future__ import annotations
 
 import argparse

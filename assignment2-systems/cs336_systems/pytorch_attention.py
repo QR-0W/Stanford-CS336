@@ -1,3 +1,15 @@
+"""PyTorch 原生缩放点积注意力的基准实现。
+
+使用 PyTorch 原生算子 (matmul, softmax) 实现标准 self-attention，
+作为 Flash Attention 性能对比的 baseline。
+
+实现公式：
+    Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) · V
+    输出 = Attention(Q, K, V) · W_O
+
+其中 Q,K,V 通过不同的线性投影从输入 x 得到，mask 确保因果性。
+"""
+
 from __future__ import annotations
 
 import argparse

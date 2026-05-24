@@ -1,3 +1,13 @@
+"""PyTorch CUDA 内存分析脚本。
+
+使用 ``torch.cuda.memory_stats()`` 和 ``torch.cuda.memory_snapshot()``
+分析模型训练时的 GPU 显存使用情况，包括：
+    - 参数内存 (静态)
+    - 激活值内存 (随 batch/seq 变化的动态部分)
+    - 优化器状态和梯度内存
+    - 峰值显存和内存碎片情况
+"""
+
 from __future__ import annotations
 
 import argparse

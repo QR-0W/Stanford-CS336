@@ -1,3 +1,11 @@
+"""混合精度训练基准测试。
+
+在 BF16 autocast 和 FP32 下对比各尺寸模型的单步时间，
+量化混合精度带来的加速比。原理：BF16 利用 Tensor Core 的
+半精度矩阵乘法吞吐量优势（H100 上可达 FP32 的 2-3x），
+同时保持 FP32 的指数范围避免梯度溢出。
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,21 @@
-"""BPE 分词器实现"""
+"""BPE (Byte-Pair Encoding) 分词器实现。
+
+基于 GPT-2 风格的 BPE 算法，从字节级别初始化 256 个基础 token，
+通过反复合并训练语料中频率最高的相邻 token 对来构建词表。
+
+核心组件：
+    - ``Tokenizer``: 完整的 BPE 编码/解码器，支持训练、保存、加载。
+    - 预分词 (pre-tokenization): 使用 GPT-2 风格的正则表达式将文本切分为
+      初级 token 序列，然后对每个 token 执行 BPE 合并。
+    - 特殊 token 支持 (``<|endoftext|>`` 等)。
+
+训练流程：
+    1. 从字节初始化 256 个基础 token
+    2. 对每个训练样本做预分词
+    3. 统计所有相邻 token 对的频率
+    4. 合并频率最高的 token 对，生成新 token
+    5. 重复 3-4 直到达到目标词表大小
+"""
 
 import json
 import regex
@@ -6,6 +23,7 @@ from collections.abc import Iterator, Iterable
 
 
 # GPT-2 风格的预分词正则表达式
+# 拆分为：缩写形式、字母串、数字串、标点符号、空白
 GPT2_PATTERN = r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 

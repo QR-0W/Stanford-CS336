@@ -1,3 +1,16 @@
+"""优化器实现：SGD、AdamW 及余弦学习率调度。
+
+包含：
+    - ``SGD``: 标准随机梯度下降（含动量和 weight decay 支持）
+    - ``AdamW``: 解耦 weight decay 的 Adam 优化器
+    - ``CosineLRScheduler``: 余弦退火 + warmup 学习率调度器
+
+AdamW 与普通 Adam 的关键区别：
+    普通 Adam 将 weight decay 作为 L2 正则化包含在梯度中（耦合形式），
+    而 AdamW 在 optimizer step 中单独应用 weight decay（解耦形式），
+    这避免了自适应学习率与正则化之间的干扰。
+"""
+
 from collections.abc import Callable, Iterable
 from typing import Optional
 import torch
@@ -6,7 +19,8 @@ import math
 
 class SGD(torch.optim.Optimizer):
     """
-    Stochastic Gradient Descent (SGD) optimizer With few subtleties
+    Stochastic Gradient Descent (SGD) 优化器。
+    支持 momentum 和 weight decay。
     """
 
     def __init__(self, params, lr=1e-3):

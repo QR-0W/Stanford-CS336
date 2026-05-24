@@ -1,3 +1,9 @@
+"""Torch 2.0 ``torch.compile`` 的模型性能基准测试。
+
+对比不编译、默认编译和多种编译后端 (inductor, cudagraphs, aot_eager)
+对 GPT-2 模型单步前向/反向时间的影响，测量编译缓存第一次和后续调用的差异。
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,18 @@
+"""从零实现 GPT-2 风格的 Transformer 语言模型。
+
+包含组件：
+    - ``Linear``: 使用 einsum 的线性层，用于教学展示权重矩阵操作
+    - ``RMSNorm``: Root Mean Square Layer Normalization (LLaMA 风格)
+    - ``RotaryEmbedding``: RoPE 位置编码
+    - ``CausalMultiHeadSelfAttention``: 多头因果自注意力
+    - ``SwiGLU``: SwiGLU 前馈网络
+    - ``TransformerBlock``: 完整 Transformer 层
+    - ``BasicsTransformerLM``: GPT-2 small-shaped 语言模型
+
+所有组件从零手写，不使用 PyTorch 内置的 nn.Linear、nn.MultiheadAttention 等。
+使用 einsum 代替 matmul 以显式展示张量收缩维度。
+"""
+
 import einops
 import torch
 import torch.nn as nn
@@ -5,7 +20,10 @@ import torch.nn as nn
 
 class Linear(nn.Module):
     """
-    线性层
+    线性层 (使用 einsum 实现，等价于 x @ W^T)。
+
+    不使用 nn.Linear，以便显式控制权重矩阵的维度和存储格式。
+    权重形状为 [d_out, d_in]。
     """
 
     def __init__(

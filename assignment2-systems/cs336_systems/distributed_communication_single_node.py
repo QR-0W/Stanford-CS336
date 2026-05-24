@@ -1,3 +1,12 @@
+"""单节点多 GPU 分布式通信基准测试。
+
+对 NCCL (GPU) 和 Gloo (CPU) 两种 backend 在不同消息大小下
+测量点对点 send/recv 操作的延迟，分析通信开销随消息大小的变化规律。
+
+典型使用：
+    python distributed_communication_single_node.py --backend nccl --world_size 2
+"""
+
 from __future__ import annotations
 
 import argparse

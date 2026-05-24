@@ -1,3 +1,11 @@
+"""文本生成 (自回归解码)。
+
+从给定的 prompt token 序列出发，逐 token 自回归生成文本，
+直到达到 ``max_new_tokens`` 或遇到 EOS token。
+
+支持 temperature 控制和 top-p (nucleus) sampling。
+"""
+
 import torch
 from cs336_basics.transformer import TransformerLM
 

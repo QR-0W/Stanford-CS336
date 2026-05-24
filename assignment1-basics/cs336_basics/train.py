@@ -1,11 +1,11 @@
 """
-CS336 Assignment 1 - Training Script
+CS336 Assignment 1 - 完整训练脚本
 
-Complete training loop for TransformerLM with:
-- Command-line hyperparameter configuration
-- Memory-efficient data loading (np.memmap)
-- Periodic checkpointing
-- TensorBoard logging
+对 TransformerLM 执行端到端训练，包含：
+    - 命令行超参数配置
+    - np.memmap 内存高效数据加载
+    - 定期检查点保存
+    - TensorBoard 日志
 """
 
 import argparse

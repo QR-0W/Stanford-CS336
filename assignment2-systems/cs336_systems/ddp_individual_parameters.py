@@ -1,3 +1,14 @@
+"""DDP 的逐参数异步梯度同步实现 (overlap individual)。
+
+与 naive DDP（all-reduce 集中在 backward 之后）不同，
+本实现为每个参数注册 ``post_accumulate_grad_hook``，在梯度累加完成后
+立即对该参数执行异步 all-reduce，从而将通信与后续层的 backward 计算
+overlap，减少训练步骤末尾的通信尾部等待。
+
+注意：逐参数同步会产生大量小粒度通信（每个参数一次 all-reduce），
+通信调用开销较大。后续 ``DDPBucketed`` 通过分桶解决了这个问题。
+"""
+
 from __future__ import annotations
 
 from typing import Any
