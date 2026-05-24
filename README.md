@@ -144,7 +144,7 @@ uv run pytest
 
 ### Assignment 1: Basics
 
-**状态**: 🚀 已完成
+**状态**: ✅ 已完成
 
 **主要任务**:
 
@@ -159,13 +159,26 @@ uv run pytest
 
 ### Assignment 2: Systems
 
-**状态**: ⏳ 待开始
+**状态**: ✅ 已完成
 
 **主要任务**:
 
-- [ ] 分布式数据并行 (DDP)
-- [ ] Sharded Optimizer (ZeRO-like)
-- [ ] Flash Attention 优化
+- [x] 单节点分布式通信基准测试 (NCCL vs Gloo)
+- [x] Naive DDP 实现与基准测试
+- [x] DDP with Overlap (Individual Parameters)
+- [x] Bucketed DDP (Gradient Bucketing + Communication Overlap)
+- [x] Flash Attention 2 (PyTorch + Triton 实现)
+- [x] Sharded Optimizer (ZeRO Stage 1 优化器状态分片)
+- [x] 混合精度训练 (BF16) 内存与速度分析
+- [x] 四维并行性 (DP/FSDP/TP/PP) 通信与内存 accounting
+
+**关键文件**:
+- ``cs336_systems/ddp_bucketed.py`` — Bucketed overlap DDP 实现
+- ``cs336_systems/sharded_optimizer.py`` — 优化器状态分片
+- ``cs336_systems/flash_attention.py`` — Flash Attention 2
+- ``cs336_systems/optimizer_state_sharding_accounting.py`` — 四维并行内存/通信计算
+
+**学习笔记**: [Assignment 2 笔记](./docs/assignment2-notes.md)
 
 ---
 
@@ -182,15 +195,35 @@ uv run pytest
 
 ### Assignment 4: Data
 
-**状态**: ⏳ 待开始
+**状态**: ✅ 已完成
 
 **主要任务**:
 
-- [ ] HTML 提取与清洗
-- [ ] 数据去重
-- [ ] 语言识别
-- [ ] PII 检测
-- [ ] 质量与毒性过滤
+- [x] HTML 文本抽取 (Resiliparse, 多编码回退)
+- [x] 语言识别 (fastText LID, ``lid.176.ftz``)
+- [x] PII 脱敏 (邮箱/电话/IPv4 正则替换)
+- [x] 有害内容检测 (Dolma NSFW / Toxic Speech fastText 模型)
+- [x] Gopher 质量规则 (词数、词长、省略号比例、字母比例)
+- [x] 质量分类器 (fastText wiki-vs-CC, Wikipedia references → CC negatives)
+- [x] 行级精确去重 (global line-frequency exact match)
+- [x] MinHash/LSH 文档级近似去重 (word n-gram + Union-Find 聚类)
+- [x] 端到端 WET 过滤流水线 (``filter_data.py``)
+- [x] 过滤数据人工检查 (``inspect_filtered_data.py``)
+- [x] GPT-2 tokenization + 二进制序列化 (``tokenize_data.py``)
+- [x] GPT-2 small-shaped 模型训练 (2000 step smoke run, ``train_model``)
+
+**关键文件**:
+- ``cs336_data/deduplication.py`` — 精确 + MinHash/LSH 去重
+- ``cs336_data/quality.py`` — Gopher 规则 + wiki-vs-CC 分类器
+- ``cs336_data/harmful.py`` — NSFW / toxic 分类
+- ``cs336_data/pii.py`` — 邮箱/电话/IP 脱敏
+- ``cs336_data/language.py`` — fastText 语言识别
+- ``cs336_data/extraction.py`` — HTML → 纯文本
+- ``scripts/filter_data.py`` — 端到端 WET 过滤
+- ``scripts/tokenize_data.py`` — GPT-2 tokenization
+- ``scripts/train_quality_classifier.py`` — fastText 质量分类器训练
+
+**学习笔记**: [Assignment 4 笔记](./docs/assignment4-notes.md)
 
 ---
 
@@ -234,13 +267,13 @@ uv run pytest
 - [x] 仓库初始化
 - [x] 下载所有作业代码
 - [x] 配置开发环境
-- [ ] 完成 Assignment 1: Basics
-  - [ ] BPE Tokenizer
-  - [ ] Transformer 实现
-  - [ ] 训练流程
-- [ ] 完成 Assignment 2: Systems
+- [x] 完成 Assignment 1: Basics
+  - [x] BPE Tokenizer
+  - [x] Transformer 实现
+  - [x] 训练流程
+- [x] 完成 Assignment 2: Systems
 - [ ] 完成 Assignment 3: Scaling
-- [ ] 完成 Assignment 4: Data
+- [x] 完成 Assignment 4: Data
 - [ ] 完成 Assignment 5: Alignment
 
 到 [open issues](https://github.com/QR-0W/Stanford-CS336/issues) 页查看所有计划功能和已知问题。

@@ -776,3 +776,186 @@ PII masking 也会修改保留文本。例如 `timeforsuccess.io/reading-list` �
 一句话总结：
 
 > Inspection 显示当前 pipeline 的主要问题不是非英语或 harmful 内容，而是模板噪声和商业列表页；后续提升 leaderboard 表现的方向应是更精细的 boilerplate removal、domain-aware sampling 和用 Paloma C4 validation 风格调节 quality threshold。
+
+## 2.12 Tokenize Data
+
+**问题：tokenize_data**
+
+在训练语言模型之前，需要把过滤后的文本数据转换成模型能直接使用的 token ID 序列。`tokenize_data` 的任务是用 GPT-2 tokenizer 将 `filter_data.py` 输出的文档编码为整数 ID，并序列化成训练脚本能读取的二进制格式。
+
+**实现脚本**
+
+```text
+assignment4-data/scripts/tokenize_data.py
+```
+
+脚本流程：
+
+1. 读取 `filter_data.py` 输出的 `.txt.gz` 文件。
+2. 按 `<|endoftext|>` 分隔符拆分成独立文档。
+3. 用 GPT-2 tokenizer（`AutoTokenizer.from_pretrained("gpt2")`）将每篇文档编码为 token ID 列表。
+4. 每篇文档末尾附加 `eos_token_id`（`50256`），作为训练时的 document boundary。
+5. 将所有文档的 token ID 展平成一个一维 `np.uint16` 数组。
+6. 用 `tofile()` 写入二进制文件，供 `train.py` 通过 `np.memmap(..., dtype=np.uint16)` 加载。
+
+二进制格式必须严格遵循 handout 示例代码，否则 `cs336-basics/scripts/train.py` 无法加载：
+
+```python
+ids_array = np.array(all_ids, dtype=np.uint16)
+ids_array.tofile(output_path)
+```
+
+训练脚本读取方式：
+
+```python
+train_data = np.memmap(cfg.paths.train_bin, dtype=np.uint16, mode="r")
+```
+
+**本地运行**
+
+```bash
+cd assignment4-data
+python scripts/tokenize_data.py \
+  --input data/filtered_one_wet_v2/text/CC-MAIN-20250417135010-20250417165010-00065.warc.wet.gz.filtered.txt.gz \
+  --output data/filtered_one_wet_v2/tokenized.bin \
+  --workers 1
+```
+
+运行结果：
+
+| 指标 | 值 |
+| --- | ---: |
+| input documents | `8677` |
+| output tokens | `13,962,921` |
+| output file size | `27,925,842 bytes` |
+| dtype | `np.uint16` |
+| tokenizer | `gpt2` |
+
+验证：用 `np.memmap(..., dtype=np.uint16)` 读取后，前 50 个 token 解码为 "Welcome to USNCCM13! | USNCCM 13..."，确认 GPT-2 编码正常。
+
+**config 配置**
+
+要把 tokenized data 用于训练，需要修改：
+
+```text
+assignment4-data/cs336-basics/configs/experiment/your_data.yaml
+```
+
+将其中的 `paths.train_bin` 指向 tokenized 二进制文件，例如：
+
+```yaml
+paths:
+  train_bin: /mdata/wjx/CS336/assignment4-data/data/filtered_one_wet_v2/tokenized.bin
+```
+
+一句话总结：
+
+  > `tokenize_data` 把过滤后的文本文档用 GPT-2 tokenizer 编码为 `np.uint16` 二进制文件，包含 EOS token 作为文档边界，输出格式与 provided training script 兼容。
+
+## 2.13 Train Model
+
+**问题：train_model**
+
+这一步使用作业提供的训练脚本 `cs336-basics/scripts/train.py` 在 tokenized 数据上训练 GPT-2 small-shaped 模型，并按固定间隔在 Paloma C4 100 domains validation set 上评估 perplexity。目标是让模型在该验证集上得到尽可能低的 validation loss，并且不能修改模型结构或训练过程。
+
+**配置**
+
+我修改了 `cs336-basics/configs/experiment/your_data.yaml`，将 `paths.train_bin` 指向本地 tokenized 二进制文件：
+
+```yaml
+paths:
+  train_bin: assignment4-data/data/filtered_one_wet_v2/tokenized.bin
+  valid_bin: assignment4-data/data/filtered_one_wet_v2/valid.bin
+  model_output: output/your_data
+
+training:
+  wandb_entity: null
+  wandb_project: null
+```
+
+注意：`valid_bin` 在本机环境中指向从训练数据切分出的 synthetic validation set，因为真正的 Paloma C4 100 domains validation data 仅存在于 Together cluster（`/data/paloma/tokenized_paloma_c4_100_domains_validation.bin`）。在 cluster 上正式提交 leaderboard 时，应将其指向该文件。
+
+**模型规格**
+
+GPT-2 small-shaped（124M parameters）：
+
+| 参数 | 值 |
+| --- | ---: |
+| vocab_size | `50257` |
+| context_length | `512` |
+| d_model | `768` |
+| num_layers | `12` |
+| num_heads | `12` |
+| d_ff | `2048` |
+| non-embedding params | `84.95M` |
+
+训练配置：
+
+| 参数 | 值 |
+| --- | ---: |
+| batch size per device | `32` |
+| gradient accumulation | `1` |
+| effective batch | `32 × 512 = 16384 tokens/step` |
+| dtype | `bfloat16` |
+| optimizer | AdamW, lr `1e-3`, cosine schedule |
+| weight decay | `0.1` |
+| max grad norm | `1.0` |
+| `torch.compile` | disabled for smoke run |
+
+注意：正式训练应使用 `batch_size=128`、`gradient_accumulation_steps=1`、2 GPU DDP（`torchrun --nproc_per_node=2`），共 `128 × 512 × 2 = 131072 tokens/step`。本机因单 GPU 内存限制（lm_head 输出 `[batch*seq, vocab]` 在 128 batch 时 `6.1 GiB`，加上模型和 optimizer state 后超过 32GB），使用 batch 32 验证流程。
+
+**运行命令**
+
+```bash
+cd assignment4-data/cs336-basics
+python scripts/train.py --config-name=experiment/your_data \
+  +training.train_steps=2000 \
+  +training.eval_interval=200 \
+  +training.eval_iterations=50 \
+  +training.compile=false \
+  +training.save_checkpoints=false \
+  +training.wandb_project=null \
+  +training.wandb_entity=null \
+  +training.train_batch_size=32 \
+  +training.gradient_accumulation_steps=1
+```
+
+正式 cluster 命令：
+
+```bash
+cd assignment4-data
+uv run torchrun --standalone --nproc_per_node=2 cs336-basics/scripts/train.py \
+  --config-name=experiment/your_data
+```
+
+**训练结果**
+
+单 GPU 单 WET 训练数据（13.96M tokens），2000 steps：
+
+| step | train loss | val loss (eval) |
+| ---: | ---: | ---: |
+| 0 | `10.83` | — |
+| 200 | — | `7.47` |
+| 400 | — | `6.20` |
+| 600 | — | `5.20` |
+| 800 | — | `4.67` |
+| 1000 | — | `4.21` |
+| 1200 | — | `4.00` |
+| 1400 | — | `3.71` |
+| 1600 | — | `3.58` |
+| 1800 | — | `3.56` |
+| 2000 | `3.58` | `3.58` |
+
+最佳 validation loss：约 `3.56`（step 1800）。Final validation loss：`3.58`。
+
+**注意事项**
+
+1. 本次训练的 validation set 是训练数据的一部分，不是独立的 Paloma C4 100 domains 数据。Paloma validation 文件在 Together cluster 上，Leaderboard 提交必须使用真实文件。
+2. 训练数据仅来自 1 个 WET 文件（约 14M tokens），远小于正式任务要求的 5000 个 WET 文件。因此 validation loss 绝对值不代表 leaderboard 分数。
+3. DDP 2 GPU 在本机因 NCCL 初始化问题未启用；cluster 上用 `torchrun --nproc_per_node=2` 即可正常启动。
+4. `torch.compile` 在本次 run 中关闭以加快实验迭代；正式训练应开启以获得更好的吞吐量。
+5. 训练产物 `output/your_data/model.pt` 和 `model_config.json` 已本地保存。
+
+一句话总结：
+
+> `train_model` 使用 provided GPT-2 small-shaped training script 在 tokenized 过滤数据上完成了 2000-step 训练，最佳 validation loss 约 `3.56`；完整 leaderboard 训练需要在 cluster 上用全部 5000 WET 文件和真实 Paloma validation set 跑 200K steps。

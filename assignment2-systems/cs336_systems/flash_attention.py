@@ -1,3 +1,18 @@
+"""Flash Attention 2 的 PyTorch 和 Triton 实现。
+
+提供两个 autograd Function：
+    - ``FlashAttention2PyTorch``：纯 PyTorch 实现的 Flash Attention 2 前向和反向。
+    - ``FlashAttention2Triton``：基于 Triton kernel 的 GPU 实现，具备更好的性能。
+
+Flash Attention 的核心思想是通过分块计算（tiling）和 online softmax 重缩放
+避免将中间注意力矩阵 S (N×N) 完整写入 HBM，从而将内存复杂度从 O(N²) 降至 O(N)。
+
+V2 相比 V1 的主要改进：
+    - 外循环从 K,V 改为 Q,O，减少 HBM 写入次数。
+    - 在序列维度（N）上增加并行，提升小 batch / 少 head 场景的 GPU 利用率。
+    - 优化 warp 级别任务划分，减少 shared memory 通信开销。
+"""
+
 from __future__ import annotations
 
 import math

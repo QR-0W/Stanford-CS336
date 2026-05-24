@@ -1,3 +1,24 @@
+"""Common Crawl WET 端到端数据过滤流水线。
+
+读取 ``.warc.wet.gz`` 文件，依次通过以下过滤层：
+    1. 空白/长度异常过滤
+    2. URL 域名黑名单（成人、博彩、spam）
+    3. 文本低价值模式匹配（sex cams、赌博、论坛注册协议等）
+    4. fastText 语言识别（仅保留英文，阈值 0.65）
+    5. Gopher 质量规则
+    6. NSFW / 毒性言论分类（Dolma/Jigsaw fastText 模型）
+    7. wiki-vs-CC 质量分类器（可选，fastText 模型）
+    8. PII 脱敏（邮箱、电话、IP）
+
+输出：
+    ``<output-dir>/text/*.filtered.txt.gz`` — 以 ``<|endoftext|>`` 分隔的 LM 训练文本
+    ``<output-dir>/filter_stats.json`` — 各步骤丢弃统计
+    ``<output-dir>/samples/kept/*.jsonl`` — 保留样本 (reservoir sampling)
+    ``<output-dir>/samples/rejected/*.jsonl`` — 丢弃样本 (reservoir sampling)
+
+支持 ``--workers`` 多进程并行处理多个 WET 文件。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -72,6 +93,18 @@ class FileStats:
 
 
 def _read_warc_headers(f) -> tuple[dict[str, str] | None, int | None]:
+    """从 WARC/WET 文件流中解析一条 record 的头部。
+
+    WARC record 格式：
+        WARC/1.0\r\n
+        Header-Name: value\r\n
+        ...
+        \r\n
+        <Content-Length 字节的 body>\r\n
+        \r\n
+
+    返回 (headers_dict, content_length) 或 (None, None) 表示 EOF。
+    """
     first = f.readline()
     if not first:
         return None, None
@@ -93,6 +126,11 @@ def _read_warc_headers(f) -> tuple[dict[str, str] | None, int | None]:
 
 
 def iter_wet_records(path: Path, max_docs: int | None = None) -> Iterable[tuple[str, str]]:
+    """迭代 WET 文件中的 conversion records，yield (URL, 文本)。
+
+    仅提取 ``WARC-Type: conversion`` 的记录，因为 WET 文件中
+    conversion record 已包含预抽取的纯文本，不需要再跑 HTML 抽取。
+    """
     yielded = 0
     with gzip.open(path, "rb") as f:
         while max_docs is None or yielded < max_docs:
@@ -110,6 +148,11 @@ def iter_wet_records(path: Path, max_docs: int | None = None) -> Iterable[tuple[
 
 
 def _normalize_for_lm(text: str) -> str:
+    """为 LM 训练做文本规范化。
+
+    将制表符、垂直制表、换页等控制字符转为单个空格，
+    删除空行，将连续 3+ 个换行压缩为两个（保留段落边界）。
+    """
     lines = [_NORMALIZE_SPACE_RE.sub(" ", line).strip() for line in text.splitlines()]
     text = "\n".join(line for line in lines if line)
     return _BLANK_LINES_RE.sub("\n\n", text).strip()
@@ -127,6 +170,11 @@ def _mask_pii(text: str) -> tuple[str, Counter[str]]:
 
 
 def _sample_record(samples: list[dict], sample: dict, limit: int, rng: random.Random, seen: int) -> None:
+    """单遍 reservoir sampling（Algorithm R）。
+
+    维护一个不超过 *limit* 条的样本列表，保证在前 *seen* 条中
+    每条被选中的概率相等。
+    """
     if limit <= 0:
         return
     if len(samples) < limit:
@@ -155,6 +203,7 @@ def filter_document(url: str, raw_text: str, config: FilterConfig) -> tuple[bool
     if _BLOCKED_URL_RE.search(url):
         kept, reason, sample = _reject("domain_blocklist", url, text)
         return kept, reason, text, Counter(), sample
+    # 仅检查文本前 5000 字符以减少 regex 开销
     if _LOW_VALUE_TEXT_RE.search(text[:5000]):
         kept, reason, sample = _reject("low_value_pattern", url, text)
         return kept, reason, text, Counter(), sample

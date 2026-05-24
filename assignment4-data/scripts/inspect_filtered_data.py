@@ -1,3 +1,10 @@
+"""检查过滤后数据的保留样本和丢弃样本。
+
+读取 ``filter_data.py`` 输出的 kept/rejected JSONL 文件，
+从两类中各随机抽取样本，生成 Markdown 格式的检查报告，
+包含 URL、过滤原因、简短人工评价和数据摘录。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -8,6 +15,7 @@ from pathlib import Path
 
 
 def _iter_jsonl(paths: list[Path]):
+    """遍历 JSONL 文件，逐行 yield 反序列化的 dict。"""
     for path in paths:
         with path.open(encoding="utf-8") as f:
             for line in f:
@@ -17,6 +25,7 @@ def _iter_jsonl(paths: list[Path]):
 
 
 def _reservoir_sample(items, k: int, seed: int) -> list[dict]:
+    """从迭代器中用 reservoir sampling 抽取最多 k 条样本。"""
     rng = random.Random(seed)
     sample: list[dict] = []
     for seen, item in enumerate(items, start=1):
@@ -30,6 +39,7 @@ def _reservoir_sample(items, k: int, seed: int) -> list[dict]:
 
 
 def _clean_excerpt(text: str, max_chars: int) -> str:
+    """压缩空白并截断到指定长度，末尾加 ``...`` 表示省略。"""
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= max_chars:
         return text
@@ -37,6 +47,7 @@ def _clean_excerpt(text: str, max_chars: int) -> str:
 
 
 def _comment_for_kept(sample: dict, used_quality_classifier: bool) -> str:
+    """根据保留样本的 URL 和内容特征生成简短中文评价。"""
     excerpt = sample.get("excerpt", "")
     words = excerpt.split()
     url = sample.get("url", "")
@@ -53,14 +64,15 @@ def _comment_for_kept(sample: dict, used_quality_classifier: bool) -> str:
 
 
 def _comment_for_rejected(sample: dict) -> str:
+    """根据丢弃原因生成简短中文评价。"""
     reason = sample.get("reason", "unknown")
     details = sample.get("details", {})
     if reason == "language":
-        return f"移除是合理的：语言预测为 `{details.get('language')}`，不符合英文训练目标。"
+        return f"移除是合理的：语言预测为 ``{details.get('language')}``，不符合英文训练目标。"
     if reason == "gopher":
-        return "移除通常合理：Gopher 规则说明文本长度、词长、符号比例或 alphabetic word 比例异常。"
+        return "移除通常合理：Gopher 规则表明文本长度、词长、符号比例或 alphabetic word 比例异常。"
     if reason == "quality_classifier":
-        return f"移除是质量分类器决策：预测 `{details.get('label')}`，置信度 `{details.get('score')}`，说明它不像高质量 reference page。"
+        return f"移除是质量分类器决策：预测 ``{details.get('label')}``，置信度 ``{details.get('score')}``，说明它不像高质量 reference page。"
     if reason in {"nsfw", "toxic", "domain_blocklist"}:
         return "移除合理：安全/域名过滤命中，避免成人、博彩、toxic 或 spam 内容进入训练集。"
     if reason in {"too_short", "empty", "too_long"}:
@@ -69,14 +81,15 @@ def _comment_for_rejected(sample: dict) -> str:
 
 
 def _write_section(out, title: str, samples: list[dict], max_chars: int, kept: bool, used_quality_classifier: bool) -> None:
+    """将一组样本写入 Markdown 文件的一个章节。"""
     out.write(f"## {title}\n\n")
     if not samples:
         out.write("No samples available.\n\n")
         return
     for index, sample in enumerate(samples, start=1):
         out.write(f"### Example {index}\n\n")
-        out.write(f"URL: `{sample.get('url', '')}`\n\n")
-        out.write(f"Reason: `{sample.get('reason', '')}`\n\n")
+        out.write(f"URL: ``{sample.get('url', '')}``\n\n")
+        out.write(f"Reason: ``{sample.get('reason', '')}``\n\n")
         comment = _comment_for_kept(sample, used_quality_classifier) if kept else _comment_for_rejected(sample)
         out.write(f"Comment: {comment}\n\n")
         out.write("Excerpt:\n\n")
@@ -86,7 +99,7 @@ def _write_section(out, title: str, samples: list[dict], max_chars: int, kept: b
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect kept and rejected samples from filter_data.py output.")
+    parser = argparse.ArgumentParser(description="检查 filter_data.py 输出的保留和丢弃样本。")
     parser.add_argument("--filter-output-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--num-examples", type=int, default=5)
@@ -96,26 +109,33 @@ def main() -> None:
 
     kept_paths = sorted((args.filter_output_dir / "samples" / "kept").glob("*.jsonl"))
     rejected_paths = sorted((args.filter_output_dir / "samples" / "rejected").glob("*.jsonl"))
+
+    # 从 filter_stats.json 中读取是否启用了质量分类器
     stats_path = args.filter_output_dir / "filter_stats.json"
     used_quality_classifier = False
     if stats_path.exists():
         stats = json.loads(stats_path.read_text(encoding="utf-8"))
         used_quality_classifier = bool(stats.get("config", {}).get("use_quality_classifier", False))
+
+    # 从两个样本池中各自 reservoir-sample 指定数量
     kept = _reservoir_sample(_iter_jsonl(kept_paths), args.num_examples, args.seed)
     rejected = _reservoir_sample(_iter_jsonl(rejected_paths), args.num_examples, args.seed + 1)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as out:
         out.write("# Filtered Data Inspection\n\n")
-        out.write("This report samples examples produced by `scripts/filter_data.py`.\n\n")
-        _write_section(out, "Kept Examples", kept, args.max_chars, kept=True, used_quality_classifier=used_quality_classifier)
-        _write_section(out, "Discarded Or Modified Examples", rejected, args.max_chars, kept=False, used_quality_classifier=used_quality_classifier)
+        out.write("This report samples examples produced by ``scripts/filter_data.py``.\n\n")
+        _write_section(out, "Kept Examples", kept, args.max_chars, kept=True,
+                       used_quality_classifier=used_quality_classifier)
+        _write_section(out, "Discarded Or Modified Examples", rejected, args.max_chars, kept=False,
+                       used_quality_classifier=used_quality_classifier)
         out.write("## Iteration Notes\n\n")
         quality_note = "enabled" if used_quality_classifier else "disabled for this run because it was too strict on the local sample"
         out.write(
             "The current pipeline prioritizes English C4-like pages with language filtering, Gopher quality rules, "
-            f"harmful-content filtering, PII masking, and a wiki-vs-CC quality classifier that is {quality_note}. Manual inspection should be "
-            "used to tune the quality threshold and decide whether the quality classifier is too strict for C4-style data.\n"
+            f"harmful-content filtering, PII masking, and a wiki-vs-CC quality classifier that is {quality_note}. "
+            "Manual inspection should be used to tune the quality threshold and decide whether the quality classifier "
+            "is too strict for C4-style data.\n"
         )
 
     print(f"wrote inspection report to {args.output}")

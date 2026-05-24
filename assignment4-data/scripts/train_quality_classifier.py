@@ -1,3 +1,15 @@
+"""训练 fastText wiki-vs-CC 质量分类器。
+
+流程：
+    1. 从 Wikipedia reference WARC 中提取正例文本（可选 Gopher 预过滤）
+    2. 从 Common Crawl WET 中提取负例文本
+    3. 写入 fastText 监督训练格式的文本文件
+    4. 训练 fastText 模型并保存到 ``cs336_data/assets/quality_classifier.bin``
+
+支持 ``--smoke-fixtures`` 先训练一个烟雾模型验证代码路径，
+也支持 ``--apply-gopher`` 在正例采集阶段先过滤低质量页面。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -20,6 +32,7 @@ LABEL_CC = "__label__cc"
 
 
 def _read_warc_headers(f):
+    """解析 WARC record 头部，返回 (headers_dict, content_length)。"""
     first = f.readline()
     if not first:
         return None, None
@@ -40,10 +53,12 @@ def _read_warc_headers(f):
 
 
 def _normalize_doc(text: str) -> str:
+    """将文本压缩为单行，避免 fastText 换行符导致训练格式错乱。"""
     return re.sub(r"\s+", " ", text).strip()
 
 
 def _fasttext_line(label: str, text: str) -> str | None:
+    """构造一条 fastText 监督训练样本行：``__label__xxx 文本内容``。"""
     text = _normalize_doc(text)
     if not text:
         return None
@@ -51,6 +66,8 @@ def _fasttext_line(label: str, text: str) -> str | None:
 
 
 def iter_warc_texts(paths: Iterable[Path], max_docs: int | None = None) -> Iterable[str]:
+    """迭代 WARC 文件中的 ``WARC-Type: response`` records，
+    用 ``extract_text_from_html_bytes`` 抽取 HTML 正文。"""
     yielded = 0
     for path in paths:
         with gzip.open(path, "rb") as f:
@@ -62,6 +79,7 @@ def iter_warc_texts(paths: Iterable[Path], max_docs: int | None = None) -> Itera
                 f.readline(); f.readline()
                 if headers.get("WARC-Type") != "response":
                     continue
+                # HTTP response body 在 WARC 中格式为 "headers\r\n\r\nbody"
                 html_body = body.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in body else body
                 text = extract_text_from_html_bytes(html_body) or ""
                 if text.strip():
@@ -70,6 +88,7 @@ def iter_warc_texts(paths: Iterable[Path], max_docs: int | None = None) -> Itera
 
 
 def iter_wet_texts(paths: Iterable[Path], max_docs: int | None = None) -> Iterable[str]:
+    """迭代 WET 文件中的 ``WARC-Type: conversion`` records，直接读预抽取文本。"""
     yielded = 0
     for path in paths:
         with gzip.open(path, "rb") as f:
@@ -88,6 +107,7 @@ def iter_wet_texts(paths: Iterable[Path], max_docs: int | None = None) -> Iterab
 
 
 def iter_fixture_examples(fixtures_dir: Path) -> Iterable[tuple[str, str]]:
+    """从测试 fixtures 中构造少量样本用于 smoke 训练。"""
     high_quality = fixtures_dir / "high_quality_wiki_reference.txt"
     low_quality = fixtures_dir / "low_quality_cc.txt"
 
@@ -105,6 +125,7 @@ def iter_fixture_examples(fixtures_dir: Path) -> Iterable[tuple[str, str]]:
 
 
 def build_train_file(args: argparse.Namespace) -> None:
+    """根据命令行参数构造训练数据文件。"""
     args.train_output.parent.mkdir(parents=True, exist_ok=True)
     with args.train_output.open("w", encoding="utf-8") as out:
         if args.smoke_fixtures:
@@ -115,6 +136,7 @@ def build_train_file(args: argparse.Namespace) -> None:
             return
 
         for text in iter_warc_texts(args.positive_warcs, args.max_positive_docs):
+            # 正例需要做 Gopher 预过滤以提高正例质量
             if not args.apply_gopher or gopher_quality_filter(text):
                 line = _fasttext_line(LABEL_WIKI, text)
                 if line:
@@ -143,6 +165,7 @@ def main() -> None:
     args = parser.parse_args()
 
     build_train_file(args)
+    # fastText 监督训练
     model = fasttext.train_supervised(
         input=str(args.train_output),
         epoch=args.epoch,
