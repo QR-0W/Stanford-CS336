@@ -4,6 +4,7 @@ import os
 from typing import Any, Callable, Literal
 
 import torch
+from einops import rearrange
 from torch import Tensor
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase
@@ -14,13 +15,12 @@ def run_tokenize_prompt_and_output(
     output_strs: list[str],
     tokenizer: PreTrainedTokenizerBase,
 ) -> dict[str, Tensor]:
-    """Tokenize the prompt and output strings, and construct a mask that is 1
-    for the response tokens and 0 for other tokens (prompt or padding).
+    """分别 tokenize prompt 和 output，并构造只覆盖 response 标签位置的 mask。
 
     Args:
-        prompt_strs: list[str], the prompt strings.
-        output_strs: list[str], the output strings.
-        tokenizer: PreTrainedTokenizer, the tokenizer to use.
+        prompt_strs: prompt 字符串列表。
+        output_strs: output / response 字符串列表。
+        tokenizer: 用于 tokenization 的 HuggingFace tokenizer。
 
     Returns:
         dict[str, torch.Tensor]:
@@ -31,7 +31,53 @@ def run_tokenize_prompt_and_output(
             "response_mask": torch.Tensor of shape (batch_size, max(prompt_and_output_lens) - 1):
                 a mask on the response tokens in `labels`.
     """
-    raise NotImplementedError
+    if len(prompt_strs) != len(output_strs):
+        raise ValueError("prompt_strs and output_strs must have the same length")
+
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None:
+        pad_token_id = tokenizer.eos_token_id
+    if pad_token_id is None:
+        raise ValueError("tokenizer must define either pad_token_id or eos_token_id")
+
+    prompt_token_ids = [
+        tokenizer.encode(prompt, add_special_tokens=False) for prompt in prompt_strs
+    ]
+    output_token_ids = [
+        tokenizer.encode(output, add_special_tokens=False) for output in output_strs
+    ]
+
+    prompt_and_output_ids = [
+        prompt_ids + output_ids
+        for prompt_ids, output_ids in zip(prompt_token_ids, output_token_ids)
+    ]
+    max_sequence_length = max(len(token_ids) for token_ids in prompt_and_output_ids)
+
+    input_ids: list[list[int]] = []
+    labels: list[list[int]] = []
+    response_mask: list[list[bool]] = []
+    for prompt_ids, output_ids, token_ids in zip(
+        prompt_token_ids, output_token_ids, prompt_and_output_ids
+    ):
+        padded_token_ids = token_ids + [pad_token_id] * (max_sequence_length - len(token_ids))
+
+        # labels 是右移一位后的目标 token；response_mask 因此也要按 labels 的位置对齐。
+        input_ids.append(padded_token_ids[:-1])
+        labels.append(padded_token_ids[1:])
+        prompt_len = len(prompt_ids)
+        output_len = len(output_ids)
+        response_mask.append(
+            [
+                prompt_len - 1 <= label_position < prompt_len + output_len - 1
+                for label_position in range(max_sequence_length - 1)
+            ]
+        )
+
+    return {
+        "input_ids": torch.tensor(input_ids, dtype=torch.long),
+        "labels": torch.tensor(labels, dtype=torch.long),
+        "response_mask": torch.tensor(response_mask, dtype=torch.bool),
+    }
 
 
 def run_compute_group_normalized_rewards(
@@ -81,8 +127,17 @@ def run_compute_group_normalized_rewards(
 
 
 def run_compute_entropy(logits: torch.Tensor) -> torch.Tensor:
-    """Get the entropy of the logits (i.e., entropy of the final dimension)."""
-    raise NotImplementedError
+    """计算每个 token 位置上 next-token 预测的熵，即对词表维度求离散熵。
+
+    Args:
+        logits: 未归一化的 logits，shape (batch_size, sequence_length, vocab_size)。
+
+    Returns:
+        torch.Tensor shape (batch_size, sequence_length)，每个位置的信息熵。
+    """
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+    probs = torch.exp(log_probs)
+    return -(probs * log_probs).sum(dim=-1)
 
 
 def run_get_response_log_probs(
@@ -90,31 +145,43 @@ def run_get_response_log_probs(
     input_ids: torch.Tensor,
     labels: torch.Tensor,
     return_token_entropy: bool,
-) -> torch.Tensor:
-    """Get the conditional log-probs of the response given the prompt,
-        and optionally the entropy of the next token predictions.
+) -> dict[str, torch.Tensor]:
+    """获取给定 prefix 下每个 label token 的条件 log-prob，并可选返回 next-token 熵。
+
+    causal LM 中 logits[:, t, :] 预测的是 token_{t+1}，即 labels[:, t]。
+    因此对每个位置 t，从 logits[:, t, :] 中取 labels[:, t] 对应词表的 log-prob。
 
     Args:
-        model: PreTrainedModel, the model to score.
-        input_ids: torch.Tensor of shape (batch_size, sequence_length):
-            the tokenized prompt and output.
-        labels: torch.Tensor of shape (batch_size, sequence_length):
-            shifted input_ids.
-        return_token_entropy: bool, whether to return the entropy of the
-            next token predictions.
+        model: HuggingFace 模型（已放置在正确设备上）。
+        input_ids: shape (batch_size, sequence_length)，拼接后的 prompt + response token。
+        labels: shape (batch_size, sequence_length)，右移一位后的目标 token。
+        return_token_entropy: 是否同时返回 per-token 熵。
 
     Returns:
         dict[str, torch.Tensor]:
-            "log_probs": torch.Tensor of shape (batch_size, sequence_length):
-                the conditional log-probs of the response given the prompt.
-                Note that we have not masked out the token indices corresponding
-                to the prompt or padding; that is done in the train loop.
-            "token_entropy": Optional[torch.Tensor] of shape (batch_size, sequence_length):
-                the entropy of the next token predictions. As with the log-probs,
-                we have not masked out the token indices corresponding to the prompt
-                or padding; that is done in the train loop.
+            "log_probs": shape (batch_size, sequence_length)，各位置的条件 log p(labels|prefix)。
+            "token_entropy" (optional): shape (batch_size, sequence_length)，per-token 熵。
     """
-    raise NotImplementedError
+    logits = model(input_ids).logits
+    log_probs_all = torch.nn.functional.log_softmax(logits, dim=-1)
+    batch_size, sequence_length, _ = log_probs_all.shape
+
+    # 展平 batch/sequence 维度后，每一行对应一个位置的 vocab 分布；labels 给出该行要取的真实 token id。
+    flat_log_probs = rearrange(log_probs_all, "batch sequence vocab -> (batch sequence) vocab")
+    flat_labels = rearrange(labels, "batch sequence -> (batch sequence)")
+    flat_positions = torch.arange(flat_labels.numel(), device=flat_labels.device)
+    flat_selected_log_probs = flat_log_probs[flat_positions, flat_labels]
+    log_probs = rearrange(
+        flat_selected_log_probs,
+        "(batch sequence) -> batch sequence",
+        batch=batch_size,
+        sequence=sequence_length,
+    )
+
+    result: dict[str, torch.Tensor] = {"log_probs": log_probs}
+    if return_token_entropy:
+        result["token_entropy"] = run_compute_entropy(logits)
+    return result
 
 
 def run_compute_naive_policy_gradient_loss(
@@ -201,9 +268,27 @@ def run_sft_microbatch_train_step(
     gradient_accumulation_steps: int,
     normalize_constant: int | None = 1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """Compute the policy gradient loss and backprop its gradients for a microbatch.
+    """执行一个 SFT microbatch 的前向+反向传播。
+
+    SFT loss 是负对数似然：L = -Σ(log_prob_i * mask_i) / (norm_const * B * grad_accum_steps)，
+    其中 B 是 batch_size。
+
+    Args:
+        policy_log_probs: shape (batch_size, sequence_length)，per-token log-probs。
+        response_mask: 同 shape 的 bool 张量，response 位置为 True。
+        gradient_accumulation_steps: 每 optimizer step 累计的 microbatch 数。
+        normalize_constant: 归一化分母常数。
+
+    Returns:
+        tuple[torch.Tensor, dict[str, torch.Tensor]]:
+            loss: 标量，调整梯度累积后的 microbatch loss。
+            metadata: 额外统计字典。
     """
-    raise NotImplementedError
+    masked_sum = (policy_log_probs * response_mask.float()).sum()
+    batch_size = policy_log_probs.shape[0]
+    loss = -masked_sum / (normalize_constant * batch_size * gradient_accumulation_steps)
+    loss.backward()
+    return loss, {}
 
     
 def run_grpo_microbatch_train_step(
@@ -251,23 +336,19 @@ def run_masked_normalize(
     dim: int | None = None,
     normalize_constant: float = 1.0,
 ) -> torch.Tensor:
-    """Sum over a dimension and normalize by a constant,
-    considering only the elements with mask value 1.
+    """沿指定维度对被 mask 选中的元素求和，并用常数归一化。
 
     Args:
-        tensor: torch.Tensor, the tensor to sum and normalize.
-        mask: torch.Tensor, the mask. We only consider elements
-            with mask value 1.
-        dim: int | None, the dimension to sum along before
-            normalization. If None, sum over all dimensions.
-        normalize_constant: float, the constant to divide by
-            for normalization.
+        tensor: 输入张量。
+        mask: 与 tensor 同 shape 的 bool 张量，mask=1 的位置参与求和。
+        dim: 沿哪个维度求和；None 表示对所有元素求和。
+        normalize_constant: 归一化分母。
 
     Returns:
-        torch.Tensor, the normalized sum, where masked elements
-            (mask=0) don't contribute to the sum.
+        torch.Tensor，求和后除以 normalize_constant 的结果。
     """
-    raise NotImplementedError
+    masked = tensor * mask.float()
+    return masked.sum(dim=dim) / normalize_constant
 
 
 """
