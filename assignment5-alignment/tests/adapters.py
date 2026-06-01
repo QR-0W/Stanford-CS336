@@ -258,6 +258,7 @@ def run_compute_policy_gradient_loss(
     - "no_baseline": 使用 raw_rewards 的 naive PG loss。
     - "reinforce_with_baseline": 使用 advantages 的 naive PG loss。
     - "grpo_clip": 使用 advantages + old_log_probs + cliprange 的 GRPO-Clip loss。
+    - "grpo_no_clip": 使用 advantages + old_log_probs 的 GRPO-No-Clip loss（无裁剪）。
     """
     if loss_type == "no_baseline":
         loss = run_compute_naive_policy_gradient_loss(raw_rewards, policy_log_probs)
@@ -267,6 +268,8 @@ def run_compute_policy_gradient_loss(
         return loss, {}
     elif loss_type == "grpo_clip":
         return run_compute_grpo_clip_loss(advantages, policy_log_probs, old_log_probs, cliprange)
+    elif loss_type == "grpo_no_clip":
+        return run_compute_grpo_no_clip_loss(advantages, policy_log_probs, old_log_probs)
     raise ValueError(f"Unknown loss_type: {loss_type}")
 
 def run_masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int | None = None) -> torch.Tensor:
@@ -313,6 +316,29 @@ def run_sft_microbatch_train_step(
     return loss, {}
 
     
+def run_compute_grpo_no_clip_loss(
+    advantages: torch.Tensor,
+    policy_log_probs: torch.Tensor,
+    old_log_probs: torch.Tensor,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """GRPO-No-Clip loss：L = -A × ratio（不做 clipping）。
+
+    用于 Section 8.7 的 clip ablation 实验，对比有无 clipping 对训练稳定性
+    和最终性能的影响。
+
+    Args:
+        advantages: shape (batch_size, 1)，per-sample advantage。
+        policy_log_probs: shape (batch_size, sequence_length)，当前策略 log-probs。
+        old_log_probs: 同 shape，旧策略 log-probs。
+
+    Returns:
+        (per-token loss, empty metadata dict)
+    """
+    ratio = torch.exp(policy_log_probs - old_log_probs)
+    loss = -advantages * ratio
+    return loss, {}
+
+
 def run_grpo_microbatch_train_step(
     policy_log_probs: torch.Tensor,
     response_mask: torch.Tensor,
@@ -386,28 +412,113 @@ def get_packed_sft_dataset(
     seq_length: int,
     shuffle: bool,
 ) -> Dataset:
-    """
-    Given a tokenizer and a path to a dataset with instruction-tuning examples,
-    construct a PyTorch Dataset for language modeling. The examples should be
-    packed, i.e., all sequences in the dataset are of a constant length (`seq_length`).
+    """构造一个固定长度 packed SFT 数据集。
 
-    Args:
-        tokenizer: transformers.PreTrainedTokenizerBase
-            Transformers tokenizer to use in tokenizing and encoding text.
-        dataset_path: str
-            Path to file with instruction-tuning examples.
-        seq_length: int
-            Number of tokens to include in each example.
-        shuffle: bool
-            If true, shuffle the documents before packing them into examples.
-
-    Returns:
-        PyTorch Dataset for language modeling. Each example in this dataset is a dictionary of
-        with keys "input_ids" and "labels" (both tensors of shape (seq_length, )).
-        "input_ids" contains the token IDs for the language modeling inputs, and "labels" contains
-        the token IDs for the language modeling labels.
+    读取 JSONL 中的 prompt/response 对，把所有样本的 token 序列拼接成一条长
+    序列，然后切分成 seq_length 个 token 的段。每段用因果语言模型的常规方式
+    构造 input_ids（前 seq_length-1 个 token）和 labels（后 seq_length-1 个
+    token，右移一位）。
     """
-    raise NotImplementedError
+    import json
+    import random
+
+    # 1. 读取 JSONL 文件中的所有 prompt/response 对。
+    records: list[dict[str, str]] = []
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            if "prompt" not in record or "response" not in record:
+                raise ValueError(f"Each line must contain 'prompt' and 'response' keys, got: {list(record.keys())}")
+            records.append(record)
+
+    # 2. 编码每条文档。
+    #    使用 Llama 3 instruction format 手动构造 token 序列：
+    #    <|begin_of_text|><|start_header_id|>user<|end_header_id|>
+    #    \n\n{prompt}<|eot_id|>
+    #    <|start_header_id|>assistant<|end_header_id|>
+    #    \n\n{response}<|eot_id|>
+    #
+    #    注意：prompt/response 文本和周围特殊 token 必须作为完整字符串一起 tokenize，
+    #    以保证 BPE 分词在边界处正确。
+    BOS_ID = tokenizer.bos_token_id
+    if BOS_ID is None:
+        raise ValueError("tokenizer must have bos_token_id set")
+
+    def _encode_special(text: str) -> list[int]:
+        return tokenizer.encode(text, add_special_tokens=False)
+
+    start_header = _encode_special("<|start_header_id|>")
+    end_header = _encode_special("<|end_header_id|>")
+    eot = _encode_special("<|eot_id|>")
+    user_role = _encode_special("user")
+    assistant_role = _encode_special("assistant")
+    newline = _encode_special("\n\n")
+
+    doc_tokens_list: list[list[int]] = []
+    for record in records:
+        prompt_ids = tokenizer.encode(record["prompt"], add_special_tokens=False)
+        response_ids = tokenizer.encode(record["response"], add_special_tokens=False)
+        doc_tokens = (
+            [BOS_ID]
+            + start_header + user_role + end_header
+            + newline
+            + prompt_ids
+            + eot
+            + start_header + assistant_role + end_header
+            + newline
+            + response_ids
+            + eot
+        )
+        doc_tokens_list.append(doc_tokens)
+
+    # 3. 可选打乱文档顺序。
+    if shuffle:
+        rng = random.Random(42)
+        rng.shuffle(doc_tokens_list)
+
+    # 4. 把所有文档的 token 拼接成一条长序列。
+    all_tokens: list[int] = []
+    for doc_tokens in doc_tokens_list:
+        all_tokens.extend(doc_tokens)
+
+    # 5. 按 seq_length 切分成固定长度段，每段需要 seq_length+1 个 token 来
+    #    构造 input_ids（前 seq_length 个）和 labels（后 seq_length 个，右移一位）。
+    chunk_size = seq_length + 1
+    num_chunks = len(all_tokens) // chunk_size
+    if num_chunks == 0:
+        raise ValueError(
+            f"Not enough tokens ({len(all_tokens)}) to create at least one chunk "
+            f"of size {chunk_size} (seq_length={seq_length})"
+        )
+
+    input_ids_list: list[list[int]] = []
+    labels_list: list[list[int]] = []
+    for i in range(num_chunks):
+        chunk = all_tokens[i * chunk_size : (i + 1) * chunk_size]
+        # input_ids 是去掉最后一个 token 的前缀；labels 是去掉第一个 token 的后缀，
+        # 这样 labels[t] 就是模型在 input_ids[:t+1] 条件下应该预测的下一个 token。
+        input_ids_list.append(chunk[:-1])
+        labels_list.append(chunk[1:])
+
+    # 6. 包装为简单的 PyTorch Dataset。
+    class PackedSFTDataset(Dataset):
+        def __init__(self, input_ids: list[list[int]], labels: list[list[int]]):
+            self.input_ids = input_ids
+            self.labels = labels
+
+        def __len__(self) -> int:
+            return len(self.input_ids)
+
+        def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+            return {
+                "input_ids": torch.tensor(self.input_ids[idx], dtype=torch.long),
+                "labels": torch.tensor(self.labels[idx], dtype=torch.long),
+            }
+
+    return PackedSFTDataset(input_ids_list, labels_list)
 
 
 def run_iterate_batches(
@@ -415,65 +526,88 @@ def run_iterate_batches(
     batch_size: int,
     shuffle: bool,
 ):
-    """
-    Given a PyTorch Dataset, return an iterable over batches of size `batch_size`.
-    Iterating through the returned iterable should constitute one epoch over the Dataset.
+    """用 DataLoader 对数据集按 batch_size 分组，返回一个可迭代对象。
 
-    Args:
-        dataset: Dataset
-            Dataset to emit batches from.
-        batch_size: int
-            Number of examples to include per batch.
-        shuffle: bool
-            If true, shuffle examples before batching them.
-
-    Returns:
-        Iterable over batches, where each batch has size `batch_size`.
+    遍历该迭代器一次等价于对数据集完成一个 epoch。每个 batch 是一个字典，
+    包含 "input_ids" 和 "labels"，形状为 (batch_size, seq_length)（最后一
+    个 batch 可能不足 batch_size）。
     """
-    raise NotImplementedError
+    from torch.utils.data import DataLoader
+
+    generator = torch.Generator()
+    generator.manual_seed(42)
+
+    def collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        """把同一个 batch 内的样本在 batch 维度上堆叠。"""
+        return {
+            "input_ids": torch.stack([item["input_ids"] for item in batch]),
+            "labels": torch.stack([item["labels"] for item in batch]),
+        }
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn,
+        generator=generator,
+    )
 
 
 def run_parse_mmlu_response(
     mmlu_example: dict[str, Any],
     model_output: str,
 ) -> str | None:
-    """
-    Given an MMLU example and a model output, parse the model output into a
-    predicted option letter (i.e., 'A', 'B', 'C', or 'D'). If the model output
-    cannot be parsed into a prediction option letter, return None.
+    """从 MMLU 模型输出中抽取预测的选项字母 (A/B/C/D)。
 
-    mmlu_example: dict[str, Any]
-        Dictionary with an MMLU example. Contains the following keys:
-        - "subject": str with the subject of the question.
-        - "question": str with the text of the question.
-        - "options": list[str] with the four answer options (in order).
-                     The first option refers to letter "A", the second to "B", etc.
-        - "answer": str with the option of the correct answer (e.g., "A")
-    model_output: str
-        str with the model's output to the MMLU example.
-
-    Returns:
-        str (one of "A", "B", "C", or "D") if the model output can be parsed into a prediction,
-        else None.
+    解析策略：
+    1. 先尝试在输出中直接匹配 "A"、"B"、"C"、"D" 等独立字母（用单词边界限定）。
+    2. 如果失败，尝试匹配选项文本（"A)"、"B)" 等）。
+    3. 如果仍失败，返回 None。
     """
-    raise NotImplementedError
+    import re
+
+    # 方法1：在文本末尾附近查找 option letter（模型输出通常在最后给出选项）
+    # 匹配类似 "answer is A" 或 "answer: B" 或单独的 "A." / "(A)" 等模式
+    patterns = [
+        # 匹配 "(A)"、"(B)" 等
+        r'\(([A-D])\)',
+        # 匹配 "A."、"B." 等独立选项
+        r'\b([A-D])\.',
+        # 匹配 "option A"、"answer A" 等
+        r'(?:answer|option|choice)\s*(?:is|:)?\s*([A-D])\b',
+        # 匹配 "I choose A" 等
+        r'(?:choose|select|pick)\s*([A-D])\b',
+        # 匹配行首单独的 "A"、"B"、"C"、"D"
+        r'^([A-D])\s*$',
+        # 最后匹配文本最后一个出现的独立 A/B/C/D（作为后备）
+        r'\b([A-D])\b',
+    ]
+
+    for pattern in patterns:
+        matches = re.findall(pattern, model_output, re.IGNORECASE)
+        if matches:
+            # 取最后一个匹配的选项字母
+            return matches[-1].upper()
+
+    return None
 
 
 def run_parse_gsm8k_response(
     model_output: str,
 ) -> str | None:
-    """
-    Given a GSM8K model output, parse the model output into a predicted numeric answer by
-    taking the last number that occurs in the output.
+    """从 GSM8K 模型输出中抽取预测的数字答案。
 
-    model_output: str
-        str with the model's output to a GSM8K example.
-
-    Returns:
-        str with the predicted numeric answer if the model output can be parsed into a prediction,
-        else None.
+    抽取规则：取输出中最后一个出现的数字（包括带小数点的数字和逗号分隔的
+    大数字如 "70,000"）。
     """
-    raise NotImplementedError
+    import re
+
+    # 匹配所有可能的数字：含可选的负号、逗号分隔的千位、可选的小数部分。
+    matches = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?", model_output)
+    if not matches:
+        return None
+    # 返回最后一个数字，去除逗号并 strip
+    return matches[-1].replace(",", "").strip()
 
 
 def run_compute_per_instance_dpo_loss(
@@ -485,27 +619,77 @@ def run_compute_per_instance_dpo_loss(
     response_chosen: str,
     response_rejected: str,
 ) -> torch.Tensor:
-    """
-    Given two language models (`lm`, and the "reference model" `lm_ref`),
-    their tokenizer, the DPO beta hyperparameter, a prompt and a pair
-    of responses to the prompt, computes the value of the DPO loss for this example.
+    """计算单条偏好对的 DPO (Direct Preference Optimization) loss。
 
-    lm: torch.nn.Module
-        Language model being trained.
-    lm_ref: torch.nn.Module
-        Reference language model.
-    tokenizer: PreTrainedTokenizerBase
-        Tokenizer for both language models.
-    beta: float
-        DPO beta hyperparameter.
-    prompt: str
-        Prompt for this instance of preference pair.
-    response_chosen: str
-        Preferred response to the prompt.
-    response_rejected: str
-        Rejected response to the prompt.
+    DPO loss 公式：
+        L = -log σ( β × (log π_θ(chosen|prompt) - log π_ref(chosen|prompt)
+                         - log π_θ(rejected|prompt) + log π_ref(rejected|prompt)) )
 
-    Returns:
-        torch.Tensor with the DPO loss for this example.
+    其中 σ 是 sigmoid，π_θ 和 π_ref 分别是当前策略模型和参考模型。
+    log π(response|prompt) 是 model 在给定 prompt 条件下对 response token
+    的平均条件 log-prob（只对 response 部分求和，不包括 prompt）。
     """
-    raise NotImplementedError
+    import torch.nn.functional as F
+
+    def _response_log_prob(
+        model: torch.nn.Module,
+        prompt_str: str,
+        response_str: str,
+    ) -> torch.Tensor:
+        """计算模型在给定 prompt 下生成 response 的 log-prob。
+
+        只对 response token 的 log-prob 求和，prompt 部分不参与计算。
+
+        关键：prompt 和 response 必须合并编码（而非分别编码后拼接），因为 BPE
+        分词在连接处的边界可能因上下文不同而产生不同的 token 序列。
+
+        causal LM 中 logits[t] 预测 token[t+1]（即 labels[t]），因此第一个
+        response token（R_0）的预测来自 logits[P-1] 位置，不是 logits[P]。
+        """
+        # 单独编码 prompt 仅用于确定 response 起始位置。
+        prompt_ids = tokenizer.encode(prompt_str, add_special_tokens=False)
+        P = len(prompt_ids)
+
+        # 合并编码 prompt+response，确保 BPE 分词在连接处正确。
+        full_text = prompt_str + response_str
+        full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+
+        # 构造 causal LM 的输入和标签：input_ids 去掉最后一个 token，
+        # labels 去掉第一个 token（等于右移一位）。
+        input_ids = torch.tensor([full_ids[:-1]], dtype=torch.long)
+        labels = torch.tensor([full_ids[1:]], dtype=torch.long)
+
+        # 确保模型在 eval 模式下计算（关闭 dropout 等），保证确定性。
+        was_training = model.training
+        if was_training:
+            model.eval()
+        try:
+            logits = model(input_ids=input_ids).logits
+        finally:
+            if was_training:
+                model.train()
+
+        log_probs_all = F.log_softmax(logits, dim=-1)
+
+        # logits[0, P-1] 预测的是 token[P] = R_0（第一个 response token）。
+        # 因此 response 的 log-prob 索引从 P-1 开始。
+        response_start = P - 1
+        response_log_probs = log_probs_all[0, response_start:].gather(
+            dim=-1, index=labels[0, response_start:].unsqueeze(-1)
+        ).squeeze(-1)
+
+        return response_log_probs.sum()
+
+    # DPO 核心计算
+    chosen_log_pi = _response_log_prob(lm, prompt, response_chosen)
+    chosen_log_ref = _response_log_prob(lm_ref, prompt, response_chosen)
+    rejected_log_pi = _response_log_prob(lm, prompt, response_rejected)
+    rejected_log_ref = _response_log_prob(lm_ref, prompt, response_rejected)
+
+    # log-ratio 差异 × beta
+    chosen_diff = chosen_log_pi - chosen_log_ref
+    rejected_diff = rejected_log_pi - rejected_log_ref
+    logits_diff = beta * (chosen_diff - rejected_diff)
+
+    # DPO loss: -log σ(logits_diff)
+    return -F.logsigmoid(logits_diff)

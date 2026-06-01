@@ -150,7 +150,10 @@ def numeric_answers_equal(predicted: Any, ground_truth: Any) -> bool:
 
 
 def r1_zero_numeric_reward_fn(response: str, ground_truth: Any) -> dict[str, float]:
-    """用于 GSM8K 自学版的轻量 R1-Zero 数字 reward。"""
+    """用于 GSM8K 自学版的轻量 R1-Zero 数字 reward。
+
+    需要模型输出包含 &LT;think&GT; / &LT;answer&GT; 标签格式。
+    """
     model_answer = extract_r1_zero_answer(response)
     if model_answer is None:
         return {"format_reward": 0.0, "answer_reward": 0.0, "reward": 0.0}
@@ -159,6 +162,24 @@ def r1_zero_numeric_reward_fn(response: str, ground_truth: Any) -> dict[str, flo
         return {"format_reward": 1.0, "answer_reward": 1.0, "reward": 1.0}
 
     predicted_number = extract_last_number(model_answer) or model_answer
+    if numeric_answers_equal(predicted_number, ground_truth):
+        return {"format_reward": 1.0, "answer_reward": 1.0, "reward": 1.0}
+    return {"format_reward": 1.0, "answer_reward": 0.0, "reward": 0.0}
+
+
+def question_only_numeric_reward_fn(response: str, ground_truth: Any) -> dict[str, float]:
+    """用于 question_only prompt 的 GSM8K 轻量数字 reward。
+
+    与 r1_zero_numeric_reward_fn 不同：
+    - 不要求 &LT;think&GT; / &LT;answer&GT; 格式（模型在 question_only prompt 下
+      不会被要求输出特定标签）。
+    - 直接从整个 response 中抽取最后一个数字与 ground truth 比较。
+    - format_reward 始终为 1.0（无格式要求）。
+    """
+    predicted_number = extract_last_number(response)
+    if predicted_number is None:
+        return {"format_reward": 1.0, "answer_reward": 0.0, "reward": 0.0}
+
     if numeric_answers_equal(predicted_number, ground_truth):
         return {"format_reward": 1.0, "answer_reward": 1.0, "reward": 1.0}
     return {"format_reward": 1.0, "answer_reward": 0.0, "reward": 0.0}
