@@ -286,3 +286,110 @@ def evaluate_vllm(
         )
 
     return results, summarize_scores(results)
+
+
+def mean_or_none(values: list[float]) -> float | None:
+    """计算均值；空列表返回 None，方便 JSON 日志区分 0 和缺失。"""
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def get_generated_response(output: Any) -> tuple[str, str | None, Any | None]:
+    """从 vLLM RequestOutput 中取第一条生成文本、结束原因和原始生成对象。"""
+    if not getattr(output, "outputs", None):
+        return "", "no_output", None
+    first_output = output.outputs[0]
+    response = getattr(first_output, "text", "")
+    finish_reason = getattr(first_output, "finish_reason", None)
+    return response, finish_reason, first_output
+
+
+def response_length(response: str, generation: Any | None = None, tokenizer: Any | None = None) -> int:
+    """优先使用 vLLM token_ids 统计长度；否则退回 tokenizer 或 whitespace 计数。"""
+    if generation is not None and getattr(generation, "token_ids", None) is not None:
+        return len(generation.token_ids)
+    if tokenizer is not None:
+        return len(tokenizer.encode(response, add_special_tokens=False))
+    return len(response.split())
+
+
+def log_generations(
+    vllm_model: Any,
+    reward_fn: Callable[[str, Any], dict[str, float]],
+    prompts: list[str],
+    ground_truths: list[Any],
+    eval_sampling_params: Any,
+    examples: list[dict[str, Any]] | None = None,
+    tokenizer: Any | None = None,
+    response_token_entropies: list[list[float]] | None = None,
+    output_path: str | Path | None = None,
+    summary_path: str | Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """生成并记录训练期样本，用于 SFT/RL 的人工检查和指标追踪。
+
+    每条日志包含 prompt、模型 response、ground truth、reward 信息、response 长度和
+    可选平均 token entropy。返回的 summary 还会统计整体、正确样本和错误样本的平均长度。
+    """
+    if len(prompts) != len(ground_truths):
+        raise ValueError("prompts and ground_truths must have the same length")
+    if examples is not None and len(examples) != len(prompts):
+        raise ValueError("examples must have the same length as prompts")
+    if response_token_entropies is not None and len(response_token_entropies) != len(prompts):
+        raise ValueError("response_token_entropies must have the same length as prompts")
+
+    outputs = vllm_model.generate(prompts, eval_sampling_params)
+    if len(outputs) != len(prompts):
+        raise ValueError("vLLM returned a different number of outputs than prompts")
+
+    records: list[dict[str, Any]] = []
+    response_lengths: list[float] = []
+    correct_lengths: list[float] = []
+    incorrect_lengths: list[float] = []
+    average_entropies: list[float] = []
+
+    for index, (prompt, ground_truth, output) in enumerate(zip(prompts, ground_truths, outputs, strict=True)):
+        response, finish_reason, generation = get_generated_response(output)
+        scores = reward_fn(response, ground_truth)
+        length = response_length(response, generation=generation, tokenizer=tokenizer)
+        entropy_values = response_token_entropies[index] if response_token_entropies is not None else []
+        average_entropy = mean_or_none([float(value) for value in entropy_values])
+        is_correct = float(scores.get("answer_reward", scores.get("reward", 0.0))) == 1.0
+
+        response_lengths.append(float(length))
+        if is_correct:
+            correct_lengths.append(float(length))
+        else:
+            incorrect_lengths.append(float(length))
+        if average_entropy is not None:
+            average_entropies.append(average_entropy)
+
+        record = {
+            "index": index,
+            "prompt": prompt,
+            "response": response,
+            "ground_truth": ground_truth,
+            "scores": scores,
+            "finish_reason": finish_reason,
+            "response_length": length,
+            "average_token_entropy": average_entropy,
+        }
+        if examples is not None:
+            record["example"] = examples[index]
+        records.append(record)
+
+    summary = {
+        **summarize_scores(records),
+        "generation_stats": {
+            "average_response_length": mean_or_none(response_lengths),
+            "average_correct_response_length": mean_or_none(correct_lengths),
+            "average_incorrect_response_length": mean_or_none(incorrect_lengths),
+            "average_token_entropy": mean_or_none(average_entropies),
+        },
+    }
+
+    if output_path is not None:
+        write_jsonl(output_path, records)
+    if summary_path is not None:
+        write_json(summary_path, summary)
+    return records, summary
