@@ -223,8 +223,7 @@ B：
 
 在这里建议先看一下 Flash Attention V1 内容，有助于理解：
 
-> 引言
-> --
+> ## 引言
 >
 > 最近面试又被拷打了一下，才发现之前对于FlashAttention学习的太浅，这篇文章重点来讲一下这几个问题：
 >
@@ -262,8 +261,7 @@ B：
 >
 > ![](./assets/v2-ced930b9c29d4fee79a3539af0bb7458_1440w.jpg)
 >
->> [FlashAttention](https://link.zhihu.com/?target=https%3A//arxiv.org/abs/2205.14135) 是一种重新排序注意力计算并利用分块和重新计算来显著加速并减少内存使用（从序列长度的二次方降至线性）的算法。我们使用分块将输入块从 HBM（GPU 内存）加载到 SRAM（快速缓存），对该块执行注意力计算，并更新 HBM 中的输出。通过不将大型中间注意力矩阵写入 HBM，我们减少了内存读写量，从而使实际时间加快 2-4 倍。
->>
+> > [FlashAttention](https://link.zhihu.com/?target=https%3A//arxiv.org/abs/2205.14135) 是一种重新排序注意力计算并利用分块和重新计算来显著加速并减少内存使用（从序列长度的二次方降至线性）的算法。我们使用分块将输入块从 HBM（GPU 内存）加载到 SRAM（快速缓存），对该块执行注意力计算，并更新 HBM 中的输出。通过不将大型中间注意力矩阵写入 HBM，我们减少了内存读写量，从而使实际时间加快 2-4 倍。
 >
 > 此处展示了 FlashAttention 正向传播的示意图：通过分块和 softmax 重缩放，我们以块为单位进行操作，避免从 HBM 读取/写入，同时获得正确的输出而没有近似值。
 >
@@ -295,21 +293,21 @@ B：
 >
 > ### 算法流程
 >
-> **FlashAttention-1其实是按照 batch 和 Heads 维度做并行的，每个block计算一个\[N,head\_dim\]的Q、K、V矩阵的attention计算结果**
+> **FlashAttention-1其实是按照 batch 和 Heads 维度做并行的，每个block计算一个\[N,head_dim\]的Q、K、V矩阵的attention计算结果**
 >
 > 由下图可以清晰的看到计算过程中每个分块的大小
 >
 > ![](./assets/v2-7cf0b098340052f08770133ce8dbc9fd_1440w.jpg)
 >
-> 图片来源：B站@比飞鸟贵重的多_HKL
+> 图片来源：B站@比飞鸟贵重的多\_HKL
 >
 > ![](./assets/v2-81a47d03d1fca6dd3636824aa3f23529_1440w.jpg)
 >
 > 关键变量定义：
 >
-> * \( $m^{(i)}$ \)：当前行到第 \( i \) 步时的最大值（用于数值稳定性）。
-> * \( $l^{(i)}$ \)：当前行到第 \( i \) 步时的指数累加和（归一化因子）。
-> * \( $O^{(i)}$ \)：当前行到第 \( i \) 步时的部分注意力输出结果。
+> - \( $m^{(i)}$ \)：当前行到第 \( i \) 步时的最大值（用于数值稳定性）。
+> - \( $l^{(i)}$ \)：当前行到第 \( i \) 步时的指数累加和（归一化因子）。
+> - \( $O^{(i)}$ \)：当前行到第 \( i \) 步时的部分注意力输出结果。
 >
 > 这三个变量与online softmax有关，储存在全局内存中
 >
@@ -359,9 +357,9 @@ B：
 >
 > 这得益于 FA2 **改变了循环的嵌套顺序**：
 >
-> * **FA1 的循环顺序：** 外循环是 K, V，内循环是 Q, O。因为 O 在内循环中会被不断换入换出显存（HBM），为了保证写入 HBM 的数据不会因为数值过大而溢出，且符合标准的 Attention 定义，FA1 选择每次都把 O 算成**已经归一化**的最终形态写回 HBM。
-> * **FA2 的循环顺序：** 外循环是 Q, O，内循环是 K, V。在这个设计下，当前处理的 Q 块和它的输出结果 O 会一直停留在超快的 SRAM 和寄存器中，直到遍历完所有的 K, V 才写回显存。
-> * **结论：** 既然中间结果不需要写回显存，我们完全可以在寄存器里维护一个未归一化（Unnormalized）的中间累加值，等所有循环跑完，最后再做一次除法进行归一化即可。
+> - **FA1 的循环顺序：** 外循环是 K, V，内循环是 Q, O。因为 O 在内循环中会被不断换入换出显存（HBM），为了保证写入 HBM 的数据不会因为数值过大而溢出，且符合标准的 Attention 定义，FA1 选择每次都把 O 算成**已经归一化**的最终形态写回 HBM。
+> - **FA2 的循环顺序：** 外循环是 Q, O，内循环是 K, V。在这个设计下，当前处理的 Q 块和它的输出结果 O 会一直停留在超快的 SRAM 和寄存器中，直到遍历完所有的 K, V 才写回显存。
+> - **结论：** 既然中间结果不需要写回显存，我们完全可以在寄存器里维护一个未归一化（Unnormalized）的中间累加值，等所有循环跑完，最后再做一次除法进行归一化即可。
 >
 > **3、数学推导**
 >
@@ -413,8 +411,8 @@ B：
 >
 > ### 更强的并行化
 >
-> * **FA1 的局限：** 主要在 Batch（批次）和 Heads（头数）维度上并行。如果 Batch 很小或者 Head 很少（比如在处理超长文本时），GPU 的成千上万个核心就会“闲死”。
-> * **FA2 的改进：** 在 **Batch (B)**、**Head (H)** 的基础上，新增了 **序列维度 (N)** 的并行。即使只有 1 个 Head，FA2 也能把长序列拆成多个块，分给不同的 GPU 流处理器（SM）去跑，大幅提高了 GPU 的“满载率”。![](./assets/v2-d25e5f9c53cd265ad35257657228acd1_1440w.jpg)
+> - **FA1 的局限：** 主要在 Batch（批次）和 Heads（头数）维度上并行。如果 Batch 很小或者 Head 很少（比如在处理超长文本时），GPU 的成千上万个核心就会“闲死”。
+> - **FA2 的改进：** 在 **Batch (B)**、**Head (H)** 的基础上，新增了 **序列维度 (N)** 的并行。即使只有 1 个 Head，FA2 也能把长序列拆成多个块，分给不同的 GPU 流处理器（SM）去跑，大幅提高了 GPU 的“满载率”。![](./assets/v2-d25e5f9c53cd265ad35257657228acd1_1440w.jpg)
 >
 > ### **优化 Warp 级任务划分**
 >
@@ -481,13 +479,12 @@ B：
 >
 > 针对 Decode 阶段的好处：
 >
-> * 速度极大提升：在长文本推理下，Flash-Decoding 比 FA2 快了 8-10 倍。
-> * 突破显存带宽瓶颈：通过增加并行度，让更多的 SM 参与搬运和计算，更接近 GPU 的理论带宽极限。
+> - 速度极大提升：在长文本推理下，Flash-Decoding 比 FA2 快了 8-10 倍。
+> - 突破显存带宽瓶颈：通过增加并行度，让更多的 SM 参与搬运和计算，更接近 GPU 的理论带宽极限。
 >
->> 作者：砂川同学
->>
->> 链接：[ AI Infra面试常考—FlashAttention系列 - 知乎](https://zhuanlan.zhihu.com/p/2015196808893192187)
->>
+> > 作者：砂川同学
+> >
+> > 链接：[ AI Infra面试常考—FlashAttention系列 - 知乎](https://zhuanlan.zhihu.com/p/2015196808893192187)
 
 以及：
 
@@ -611,7 +608,7 @@ B：
 - 在单机 2 GPU（NCCL）下，naive DDP 每步训练时间可分解为计算与逐参数 all-reduce 通信两部分；在当前可运行配置中，通信时间占比约 `64.33%`，说明逐参数同步的通信开销非常显著。
 - 该结果与 naive DDP 的预期一致：每个参数都单独触发 all-reduce，导致通信调用频繁、总开销偏高。
 
-| model_size | world_size | dtype   | global_bs | local_bs | context_len | step_mean_ms | comm_mean_ms | comm_ratio_% |
+| model_size | world_size | dtype   | global_bs | local_bs | context_len | step_mean_ms | comm_mean_ms | comm*ratio*% |
 | ---------- | ---------: | ------- | --------: | -------: | ----------: | -----------: | -----------: | -----------: |
 | small      |          2 | float32 |         4 |        2 |         128 |      144.568 |       93.748 |        64.33 |
 
@@ -635,7 +632,7 @@ B：
 
 核心表格：
 
-| impl                    | bucket_mb | step_mean_ms | sync_tail_mean_ms | sync_tail_ratio_% |
+| impl                    | bucket_mb | step_mean_ms | sync_tail_mean_ms | sync*tail_ratio*% |
 | :---------------------- | :-------- | :----------- | :---------------- | :---------------- |
 | individual              | -         | 66.644       | 35.169            | 52.82             |
 | flat                    | -         | 65.705       | 32.919            | 50.11             |
@@ -694,7 +691,7 @@ $$
 记：
 
 $$
-d=d_{\text{model}}=16384,\qquad 
+d=d_{\text{model}}=16384,\qquad
 f=d_{\text{ff}}=53248,\qquad
 L=n_{\text{blocks}}=126
 $$
@@ -705,9 +702,9 @@ $$
 b=\frac{B}{N}
 $$
 
-表示每设备 batch size，其中 \(N\) 是总设备数。令 \(C_{\text{mem}}\) 表示每设备显存预算。
+表示每设备 batch size，其中 \(N\) 是总设备数。令 \(C\_{\text{mem}}\) 表示每设备显存预算。
 
-## (a) Memory Accounting
+(a) Memory Accounting
 
 参数量近似为：
 
@@ -774,7 +771,7 @@ $$
 
 因此，仅 FP32 master weights、gradients 和 Adam optimizer states 就需要约 **3.52 TB**，约等于 **44 张 H100 80GB** 的显存，不含 activations。
 
-## (b) FSDP Memory Expression
+(b) FSDP Memory Expression
 
 由 (a)，FP32 model / gradient / optimizer states 的总内存为：
 
@@ -790,7 +787,7 @@ A(B)=2BL(d+f)
 17{,}547{,}264B\text{ bytes}
 $$
 
-题目假设 master weights、optimizer states、gradients，以及一半 activations 被 sharded across \(N_{\text{FSDP}}\) devices；另一半 activations 不 shard。因此每设备内存为：
+题目假设 master weights、optimizer states、gradients，以及一半 activations 被 sharded across \(N\_{\text{FSDP}}\) devices；另一半 activations 不 shard。因此每设备内存为：
 
 $$
 M_{\text{device}}(B,N_{\text{FSDP}})
@@ -820,7 +817,7 @@ N_{\text{FSDP}}
 \frac{S}{C_{\text{mem}}}
 $$
 
-若使用 \(C_{\text{mem}}=95\text{ GB}\)，则：
+若使用 \(C\_{\text{mem}}=95\text{ GB}\)，则：
 
 $$
 N_{\text{FSDP}}
@@ -905,7 +902,7 @@ $$
 
 因此，如果只考虑 FP32 model / gradient / optimizer states，至少需要约 **38-way FSDP**；如果包含 compute-bound batch size 下的 saved activations，则至少需要约 **59-way FSDP**，实践中取 **64-way FSDP** 更自然。
 
-## (c) Compute-Bound Batch Size
+(c) Compute-Bound Batch Size
 
 题目给定：
 
@@ -999,7 +996,7 @@ $$
 
 因此，在 \(X=16,Y=4,M_X=2,M_Y=1\) 的 3D mesh 配置下，每设备约 **62 tokens** 就可以达到 compute-bound，对应 global batch size 约 **4K tokens**。
 
-## (d) Reducing Batch Size While Maintaining Throughput
+(d) Reducing Batch Size While Maintaining Throughput
 
 为了降低 global batch size，同时保持较高吞吐，应减少对纯 data parallelism 的依赖，转向更多 model-parallel 维度。
 

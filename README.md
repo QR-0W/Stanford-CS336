@@ -1,81 +1,143 @@
-# Stanford CS336: Language Modeling from Scratch
+<div align="center">
 
-Stanford CS336 课程的个人实现与学习笔记。从零构建大语言模型全流程：
-BPE Tokenizer → Transformer 架构 → 分布式训练 → Scaling Laws → 数据工程。
+<img src="https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
+<img src="https://img.shields.io/badge/pytorch-2.7-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"/>
+<img src="https://img.shields.io/badge/cuda-13.0-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"/>
+<img src="https://img.shields.io/badge/license-educational-lightgrey?style=for-the-badge" alt="License"/>
 
-[官方课程仓库](https://github.com/stanford-cs336)
+</div>
 
-## 硬件配置
+<br>
 
-| 组件 | 配置 |
+<div align="center">
+
+# CS336: Language Modeling from Scratch
+
+**Stanford CS336 · 从零构建大语言模型**
+
+</div>
+
+<br>
+
+<div align="center">
+  <table><tr><td>
+    <strong>BPE Tokenizer</strong> → <strong>Transformer</strong> → <strong>分布式训练</strong> → <strong>Scaling Laws</strong> → <strong>数据工程</strong>
+  </td></tr></table>
+</div>
+
+<br>
+
+## 作业进度
+
+> **已完成 4/5** &nbsp;&nbsp; ████████████████████░░░░ &nbsp;&nbsp; **80%**
+
+| # | 作业 | 状态 | 说明 |
+|:---:|---|---|---|
+| 1 | **Basics** | ✅ | BPE Tokenizer · Transformer (RMSNorm, RoPE, SwiGLU) · 完整训练流程 |
+| 2 | **Systems** | ✅ | DDP (Bucketed Overlap) · Flash Attention 2 · Sharded Optimizer |
+| 3 | **Scaling** | ✅ | IsoFLOPs 分析 · Chinchilla 最优外推 · Power-Law 拟合 |
+| 4 | **Data** | ✅ | WET 清洗流水线 · 去重 · PII · 质量分类 · 模型训练 |
+| 5 | **Alignment** | ⏳ | SFT · DPO · GRPO (待完成) |
+
+> 📝 [浏览全部学习笔记](./docs/) &nbsp;|&nbsp; 📦 [官方课程仓库](https://github.com/stanford-cs336)
+
+<br>
+
+## 硬件
+
+<div align="center">
+
+| CPU | GPU | 内存 | 存储 |
+|:---:|:---:|:---:|:---:|
+| AMD Threadripper 9960X | 3× RTX 5090 32GB | 251 GB DDR5 | 938GB + 1.9TB |
+| 24核 / 48线程 @ 5.49GHz | CUDA 13.0 | | NVMe + HDD |
+
+</div>
+
+<br>
+
+## 仓库结构
+
+```
+.
+├── assignment1-basics/     BPE 分词器 · Transformer 实现 · 训练
+├── assignment2-systems/    分布式 DDP · Flash Attention · 优化器分片
+├── assignment3-scaling/    IsoFLOPs · Chinchilla · Scaling Law 拟合
+├── assignment4-data/       CC WET 清洗 · 去重 · PII · 质量过滤
+└── docs/                   所有作业笔记
+```
+
+<br>
+
+## 关键实现
+
+<details open>
+<summary><strong>Assignment 1 — Basics</strong></summary>
+
+| 模块 | 源码 |
 |---|---|
-| CPU | AMD Ryzen Threadripper 9960X (24核/48线程, 5.49GHz) |
-| 内存 | 251 GB DDR5 |
-| GPU | 3× NVIDIA GeForce RTX 5090 (32GB × 3) |
-| 存储 | 938GB NVMe + 1.9TB HDD |
-| CUDA | 13.0 |
-
-## 作业概览
-
-| # | 作业 | 状态 | 笔记 |
-|---|---|---|---|
-| 1 | [Basics](./assignment1-basics/) — BPE Tokenizer, Transformer, 训练流程 | ✅ | [notes](./docs/assignment1-notes.md) |
-| 2 | [Systems](./assignment2-systems/) — DDP, Flash Attention, Sharded Optimizer | ✅ | [notes](./docs/assignment2-notes.md) |
-| 3 | [Scaling](./assignment3-scaling/) — IsoFLOPs, Chinchilla, Power-Law Fitting | ✅ | [notes](./docs/assignment3-notes.md) |
-| 4 | [Data](./assignment4-data/) — WET 过滤, 去重, PII, 质量分类, 模型训练 | ✅ | [notes](./docs/assignment4-notes.md) |
-| 5 | Alignment — SFT, DPO, GRPO | ⏳ | — |
-
-### Assignment 1: Basics
-
-从零实现 GPT-2 风格的语言模型，包含完整训练和文本生成。
-
-| 模块 | 文件 |
-|---|---|
-| BPE 分词器 | `cs336_basics/tokenizer.py` |
-| Transformer (RMSNorm, RoPE, Attention, SwiGLU) | `cs336_basics/transformer.py` |
+| BPE 分词器 (GPT-2 风格) | `cs336_basics/tokenizer.py` |
+| Transformer (RMSNorm, RoPE, Multi-Head Attention, SwiGLU) | `cs336_basics/transformer.py` |
 | 优化器 (SGD, AdamW, Cosine LR) | `cs336_basics/optimizer.py` |
 | 文本生成 (temperature, top-p) | `cs336_basics/decoding.py` |
-| 训练脚本 | `cs336_basics/train.py` |
 
-### Assignment 2: Systems
+</details>
 
-分布式训练系统优化：从 naive DDP 到 bucketed overlap，手写 Flash Attention 2 和 Sharded Optimizer。
+<details open>
+<summary><strong>Assignment 2 — Systems</strong></summary>
 
-| 模块 | 文件 |
+| 模块 | 源码 |
 |---|---|
-| Bucketed Overlap DDP | `cs336_systems/ddp_bucketed.py` |
+| Bucketed Overlap DDP (梯度分桶 + 通信重叠) | `cs336_systems/ddp_bucketed.py` |
 | Flash Attention 2 (PyTorch + Triton) | `cs336_systems/flash_attention.py` |
 | Sharded Optimizer (ZeRO Stage 1) | `cs336_systems/sharded_optimizer.py` |
-| 四维并行 memory/communication accounting | `cs336_systems/optimizer_state_sharding_accounting.py` |
-| 分布式通信基准 (NCCL vs Gloo) | `cs336_systems/distributed_communication_single_node.py` |
+| 四维并行 Accounting (DP/FSDP/TP/PP) | `cs336_systems/optimizer_state_sharding_accounting.py` |
 
-### Assignment 3: Scaling
+</details>
 
-IsoFLOPs 曲线分析与 Chinchilla 计算最优配置外推。基于本地合成 API 的缩放定律实验。
+<details open>
+<summary><strong>Assignment 3 — Scaling</strong></summary>
 
-| 模块 | 文件 |
+| 模块 | 源码 |
 |---|---|
-| IsoFLOPs 分析与 Power-Law 拟合 | `cs336_scaling/isoflops.py` |
-| Scaling API 客户端 | `cs336_scaling/api.py` |
-| 本地合成训练 API | `cs336_scaling/local_api.py` |
+| IsoFLOPs 曲线分析 + Power-Law 拟合 | `cs336_scaling/isoflops.py` |
+| 本地合成训练 API (Chinchilla 风格 surrogate) | `cs336_scaling/local_api.py` |
 | 实验查询计划构建 | `cs336_scaling/scaling_plan.py` |
-| Chinchilla 最优分析 | `scripts/chinchilla_isoflops.py` |
+| Chinchilla 最优计算外推 | `scripts/chinchilla_isoflops.py` |
 
-### Assignment 4: Data
+</details>
 
-Common Crawl 数据清洗流水线：从原始 WET 到 GPT-2 训练二进制。
+<details open>
+<summary><strong>Assignment 4 — Data</strong></summary>
 
-| 模块 | 文件 |
+| 模块 | 源码 |
 |---|---|
-| HTML 文本抽取 | `cs336_data/extraction.py` |
-| 语言识别 (fastText LID) | `cs336_data/language.py` |
-| PII 脱敏 (邮箱/电话/IP) | `cs336_data/pii.py` |
-| NSFW / Toxic 分类 | `cs336_data/harmful.py` |
-| Gopher 质量规则 + 质量分类器 | `cs336_data/quality.py` |
-| 精确 + MinHash/LSH 去重 | `cs336_data/deduplication.py` |
+| HTML 文本抽取 (Resiliparse + 多编码回退) | `cs336_data/extraction.py` |
+| fastText 语言识别 | `cs336_data/language.py` |
+| PII 脱敏 (邮箱 / 电话 / IPv4) | `cs336_data/pii.py` |
+| NSFW + Toxic 有害内容分类 | `cs336_data/harmful.py` |
+| Gopher 规则 + wiki-vs-CC 质量分类器 | `cs336_data/quality.py` |
+| 行级精确去重 + MinHash/LSH 文档级去重 | `cs336_data/deduplication.py` |
 | 端到端 WET 过滤流水线 | `scripts/filter_data.py` |
-| GPT-2 Tokenization | `scripts/tokenize_data.py` |
+| GPT-2 Tokenization → `np.uint16` 训练二进制 | `scripts/tokenize_data.py` |
 
-## 许可证
+</details>
 
-仅用于教育学习目的。请遵守 Stanford 的学术诚信政策。
+<br>
+
+## 快速开始
+
+```bash
+git clone https://github.com/QR-0W/Stanford-CS336.git
+cd assignment4-data
+python -m pytest -v          # 21 tests
+python scripts/filter_data.py --input data/CC*.warc.wet.gz --output-dir data/out
+```
+
+<br>
+
+<div align="center">
+
+**仅用于教育学习目的 · 请遵守 Stanford 学术诚信政策**
+
+</div>
