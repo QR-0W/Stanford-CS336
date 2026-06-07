@@ -699,9 +699,7 @@ PDF 要求:
 | Prompt | Max Reward | Final Reward | 速度 |
 | --- | ---: | ---: | --- |
 | r1_zero（baseline） | 0.852 | 0.641 | ~75s/step |
-| **question_only** | **0.781** | **0.719*** | ~30s/step |
-
-*question_only: 32/50，仍在运行中
+| **question_only** | **0.797** | **0.586** | ~30s/step |
 
 **分析:**
 - question_only prompt 在早期就达到高 reward（step 10 已 77.3%），且运行速度快 2.5 倍（~30s vs ~75s/step，因为不需要生成长 reasoning traces）。
@@ -723,11 +721,10 @@ PDF 要求:
 | 4 | no_baseline | raw rewards, no advantage | 0.680 |
 | 5 | masked_normalize | sum/1024 normalization | 0.766 |
 | 6 | **no_std** | Dr. GRPO, no std division | **0.852** 🏆 |
-| 7 | question_only | simple prompt, question_only_reward | 0.781* |
+| 7 | question_only | simple prompt, question_only_reward | 0.797 |
 | 8 | off-policy + clip ablation | 多 epoch, GRPO-Clip/No-Clip | 未运行 |
 
 🏆 = 最佳配置
-* = 仍在运行中（32/50）
 
 **最佳超参数组合（GSM8K）:**
 - `lr=5e-6`, `G=8`, `rollout_batch_size=16`
@@ -968,7 +965,7 @@ step= 4 correct= 52/128 reward=0.4062  ← 最佳
 | 8.4 | Group Std Normalization | ✅ no_std (85.2%) 🏆 > with_std (77.3%), Dr. GRPO 建议验证 |
 | 8.5 | Off-Policy GRPO | ⏳ 代码支持，实验因时间/算力限制未运行 |
 | 8.6 | Clip Ablation | ⏳ 代码支持 grpo_no_clip，待 off-policy 实验 |
-| 8.7 | Prompt Ablation | ✅ question_only (78.1%, 快速) vs r1_zero (85.2%, 更准确) |
+| 8.7 | Prompt Ablation | ✅ question_only (79.7%, 快速) vs r1_zero (85.2%, 更准确) |
 | 9 | Leaderboard | ⏳ 需 MATH + H100/5090，可用远程服务器 |
 
 ## 核心发现
