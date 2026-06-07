@@ -835,8 +835,8 @@ step= 4 correct= 52/128 reward=0.4062  ← 最佳
 | 7.2 | GRPO Helper Methods (7 个: `compute_group_normalized_rewards`, `compute_naive_policy_gradient_loss`, `compute_grpo_clip_loss`, `compute_policy_gradient_loss`, `masked_mean`, `grpo_microbatch_train_step`, plus training adapter) | ✅ 全部 snapshot 测试通过 |
 | 7.2 | GRPO train loop | ✅ Smoke test 通过（远程 5090），中等实验运行中（50 steps, batch=16, G=4） |
 | 7.2 | Bug fix: scheduler.step() 位置 | ✅ 已修复（从内层循环移至 GRPO step 层级） |
-| 8.1 | GRPO Learning Rate Tuning | ⏳ 待 train loop 完成后运行 |
-| 8.2 | GRPO Baselines | ⏳ 待 train loop 完成后运行 |
+| 8.1 | GRPO Learning Rate Tuning | 🔄 远程 3×5090 并行运行中: lr∈{5e-7,1e-6,5e-6}, G=8, n=50, base model |
+| 8.2 | GRPO Baselines | ⏳ 待 LR sweep 完成后运行 (需要 best lr) |
 | 8.3 | Length Normalization (理论) | ✅ 已分析 `masked_mean` vs `masked_normalize` |
 | 8.3 | Length Normalization (实验) | ⏳ 待 train loop 完成后运行 |
 | 8.4 | Group Std Normalization | ⏳ 待 train loop 完成后运行 |
