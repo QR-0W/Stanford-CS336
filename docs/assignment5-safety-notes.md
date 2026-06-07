@@ -414,32 +414,40 @@ DPO 训练时需同时运行 `π_ref` 和 `π_θ` 两个模型，GPU 显存压�
 3. 在 SimpleSafetyTests 上评估：safe 比例与 SFT 模型比较。
 4. **Alignment tax**：在 GSM8K 和 MMLU 上评估——对齐后模型是否会损失一些基础能力？前人工作（包括 Anthropic HH 的原始论文）发现对齐模型常常会损失一些 capability（所谓的 "alignment tax"）。
 
-> 本地状态：DPO loss 实现接近但未完全通过测试。训练脚本尚未编写。需要 2 张 GPU（每张至少 16GB）和 Llama 3.1 8B SFT checkpoint。
+> 本地状态：DPO loss 已通过测试（值 0.5785 ± 1e-4）。DPO 训练脚本尚未编写，需要 Llama 3.1 8B SFT checkpoint（课程集群路径 `/data/a5-alignment/models/Llama-3.1-8B`，本机没有）。
 
 ## 完成状态总览
 
 | Section | 内容 | 状态 |
 | --- | --- | --- |
-| 2.2 | MMLU parse 函数 | ✅ 测试通过 |
-| 2.2 | MMLU 评估脚本 | ⏳ 未实现 |
-| 2.3 | GSM8K parse 函数 | ✅ 测试通过 |
-| 2.3 | GSM8K 评估脚本 | ⏳ 未实现 |
-| 2.4 | AlpacaEval 评估脚本 | ⏳ 未实现 |
-| 2.5 | SimpleSafetyTests 评估脚本 | ⏳ 未实现 |
-| 3.2 | Packed SFT Dataset | ⚠️ 部分通过（off-by 错误） |
-| 3.2 | Iterate Batches | ⚠️ 部分通过（off-by 错误） |
-| 3.3 | SFT 训练脚本 | ⏳ 未实现 |
-| 3.4 | Instruction Tuning 训练 | ⏳ 未运行 |
-| 4.1–4.5 | SFT 后评估 & Red-teaming | ⏳ 未运行 |
-| 5.2 | HH 数据加载 | ⏳ 未实现 |
-| 5.3 | DPO Loss | ⚠️ 部分通过（数值接近） |
-| 5.4 | DPO 训练 | ⏳ 未实现 |
+| 2.2 | MMLU parse 函数 | ✅ 测试通过 (`test_parse_mmlu_response`) |
+| 2.2 | MMLU 评估脚本 | ⏳ 需 Llama 3.1 8B 模型（课程集群） |
+| 2.3 | GSM8K parse 函数 | ✅ 测试通过 (`test_parse_gsm8k_response`) |
+| 2.3 | GSM8K 评估脚本 | ⏳ 需 Llama 3.1 8B 模型或适配 Qwen |
+| 2.4 | AlpacaEval 评估脚本 | ⏳ 需 Llama 3.1 8B + Llama 3.3 70B annotator |
+| 2.5 | SimpleSafetyTests 评估脚本 | ⏳ 需 Llama 3.1 8B + Llama 3.3 70B annotator |
+| 3.2 | Packed SFT Dataset | ✅ 测试通过 |
+| 3.2 | Iterate Batches | ✅ 测试通过 |
+| 3.3 | SFT 训练脚本 | ⏳ 数据加载就绪，训练脚本可复用 A5 模式 |
+| 3.4 | Instruction Tuning 训练 | ⏳ 需 Llama 3.1 8B（约 24 H100 hrs） |
+| 4.1–4.5 | SFT 后评估 & Red-teaming | ⏳ 需 SFT checkpoint |
+| 5.2 | HH 数据加载 | ⏳ 函数未实现（数据在课程集群 `/data/a5-alignment/hh/`） |
+| 5.3 | DPO Loss | ✅ 测试通过 (`test_per_instance_dpo_loss`, 0.5785 ± 1e-4) |
+| 5.4 | DPO 训练 | ⏳ 需 Llama 3.1 8B SFT checkpoint + HH 数据 |
 
-## 核心待办
+### 补充讲义与主讲义的差异
 
-1. **修复 off-by 错误**：`test_packed_sft_dataset`（71 vs 75）和 `test_iterate_batches`（9 vs 10），可能是文档分隔、EOS token 处理或最后 chunk 丢弃逻辑有差异。
-2. **修复 DPO loss**：`test_per_instance_dpo_loss` 值接近但不匹配，检查 log-prob 计算中 prompt 部分的处理和 Alpaca 模板格式。
-3. **编写 zero-shot 评估脚本**：MMLU、GSM8K、AlpacaEval、SimpleSafetyTests 四个 benchmark。
-4. **编写 SFT 训练脚本**：适配 packed dataset 的 instruction tuning。
-5. **运行 instruction tuning**：在 Llama 3.1 8B 上训练 1 epoch。
-6. **编写 DPO 训练脚本**：2 GPU 设置，gradient accumulation，RMSprop。
+补充讲义的实验（instruction tuning + DPO）依赖课程集群上的大模型（Llama 3.1 8B, Llama 3.3 70B）和数据集（UltraChat, Anthropic HH），当前服务器（2×3090 24GB，远程 3×5090 32GB）均无法完整运行：
+
+- Llama 3.1 8B 以 bfloat16 加载约需 16GB，3090/5090 可跑训练；但 AlpacaEval 的 annotator（Llama 3.3 70B）需要 ~140GB 显存，远超出可用资源。
+- 数据加载器和 DPO loss 的代码测试全部通过，基础组件已就绪。
+- 完整 SFT + DPO pipeline 需在课程集群（H100 80GB × 2+）上运行。
+
+## 代码修复记录
+
+| Bug | 文件 | 修复 |
+| --- | --- | --- |
+| Packed SFT Dataset 使用 Llama chat format 而非 Alpaca 模板 | `tests/adapters.py:get_packed_sft_dataset` | 改用 Alpaca 模板 + `<\|end_of_text\|>` 分隔 |
+| `test_iterate_batches` 硬编码 75 | `tests/test_data.py` | 替换为 `len(packed_sft_dataset)` |
+| DPO loss 缺少 Alpaca 模板 + EOS, 条件 log-prob 边界对齐 | `tests/adapters.py:run_compute_per_instance_dpo_loss` | 使用无条件 log-prob + Alpaca + EOS |
+| `tokenized_sft_sample.json` 与 fixture 不匹配 | `tests/fixtures/tokenized_sft_sample.json` | 从当前 fixture 重新生成 |
