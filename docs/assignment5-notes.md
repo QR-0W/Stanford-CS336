@@ -574,8 +574,8 @@ batch mean / gradient_accumulation_steps -> backward
 
 PDF 要求实现完整 GRPO train loop，包括 rollout、reward、advantage、policy update、定期 validation 和 rollout logging。目前：
 
-- **helper 函数已全部实现**：`compute_group_normalized_rewards`、`compute_naive_policy_gradient_loss`、`compute_grpo_clip_loss`、`compute_policy_gradient_loss`、`masked_mean`、`grpo_microbatch_train_step` 共 6 个函数均通过 snapshot 测试。
-- **GRPO train loop 脚本尚未完成**：`tests/adapters.py` 中的 `run_iterate_batches` 等函数也尚未实现（不影响 helper 测试）。
+- **helper 函数已全部实现并通过测试**。
+- **GRPO train loop 脚本已完成并经 smoke test 验证通过**（远程 5090, 3 steps 成功）。`grpo_experiment.py` 含完整单 GPU + CPU offloading 实现，支持 off-policy epochs、length normalization、多种 loss type。一个中等规模实验（50 steps, batch=16, G=4）正在远程运行中。
 
 # 8 GRPO Experiments
 
@@ -789,6 +789,25 @@ Qwen 2.5 Math 1.5B 在预训练时已经见过大量 question-answer 对，因�
 
 本作业把前面语言模型训练的基础组件连接到 post-training：先用 zero-shot 建 baseline，再用 SFT 学 reasoning trace，接着用 EI 自举推理能力，最后用 GRPO 做 reasoning RL。
 
+## 代码问题记录
+
+### 🛑 scheduler.step() 调用位置错误（已修复）
+
+发现 `grpo_experiment.py` 中 `scheduler.step()` 在 policy gradient update 的内层循环中调用，每个 GRPO step 会被调用 `num_updates` 次（如 16 次），导致 LR 在几步后就衰减到接近零。修复方式：将 `scheduler.step()` 移到 GRPO step 层级，每步只调用一次。
+
+修复前 LR 轨迹（n_steps=50, warmup=1）：
+```
+step=1 lr=7.86e-7  step=2 lr=2.97e-7  step=3 lr=4.10e-9  ← 几乎为零！
+```
+修复后：
+```
+step=1 lr=1.00e-6  step=2 lr=9.99e-7  step=3 lr=9.96e-7  ← 正常的 cosine decay
+```
+
+### ℹ️ 本地 vLLM 未安装
+
+当前服务器的 `python` 环境未安装 vLLM，因此 GRPO 实验无法在本地运行，需要通过远程服务器（10.176.65.209, Conf_Test conda env, vLLM 0.18.1）执行。
+
 ## 完成状态总览
 
 | Section | 内容 | 状态 |
@@ -799,7 +818,8 @@ Qwen 2.5 Math 1.5B 在预训练时已经见过大量 question-answer 对，因�
 | 4.3 | SFT + `--filter-correct` | ✅ GSM8K 全量数据 filter=0 过滤 |
 | 5 | Expert Iteration (5 steps, GSM8K) | ✅ accuracy 16.8% → 49.7% |
 | 7.2 | GRPO Helper Methods (7 个: `compute_group_normalized_rewards`, `compute_naive_policy_gradient_loss`, `compute_grpo_clip_loss`, `compute_policy_gradient_loss`, `masked_mean`, `grpo_microbatch_train_step`, plus training adapter) | ✅ 全部 snapshot 测试通过 |
-| 7.2 | GRPO train loop | ⏳ Script 骨架存在（`grpo_experiment.py`），`_vllm_runner.py` 有 vLLM helper，待完整联调 |
+| 7.2 | GRPO train loop | ✅ Smoke test 通过（远程 5090），中等实验运行中（50 steps, batch=16, G=4） |
+| 7.2 | Bug fix: scheduler.step() 位置 | ✅ 已修复（从内层循环移至 GRPO step 层级） |
 | 8.1 | GRPO Learning Rate Tuning | ⏳ 待 train loop 完成后运行 |
 | 8.2 | GRPO Baselines | ⏳ 待 train loop 完成后运行 |
 | 8.3 | Length Normalization (理论) | ✅ 已分析 `masked_mean` vs `masked_normalize` |
