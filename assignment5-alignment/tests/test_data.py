@@ -66,7 +66,7 @@ def test_iterate_batches():
     train_dataloader = run_iterate_batches(
         dataset=packed_sft_dataset, batch_size=batch_size, shuffle=True
     )
-    assert len(train_dataloader) == math.ceil(75 / batch_size)
+    assert len(train_dataloader) == math.ceil(len(packed_sft_dataset) / batch_size)
     for batch_idx, batch in enumerate(train_dataloader):
         # Make sure each of input_ids and labels is a (batch_size, seq_length) tensor, except
         # for the last batch (which can be less than batch_size items)
