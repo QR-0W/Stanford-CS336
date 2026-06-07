@@ -189,15 +189,19 @@ def train(args):
         exs = [SFTExample(prompt=p, response=r, source={"ground_truth": gt}) for p, r, gt in zip(prompts, responses, rep_gts)]
         dl = make_sft_dataloader(exs, tokenizer, args.per_device_batch_size, args.max_sequence_length, shuffle=False, seed=args.seed + step)
 
-        # Old log_probs
+        # Old log_probs — compute in eval mode to match vLLM rollout behavior
         old_lp_dict = {}
+        was_training_before_old = model.training
+        model.eval()
         with torch.no_grad():
             for bi, batch in enumerate(dl):
                 ids, labs = batch["input_ids"].to(device), batch["labels"].to(device)
                 olp = log_probs_from_logits(model(input_ids=ids).logits, labs).detach().cpu()
                 for i in range(ids.shape[0]): old_lp_dict[bi * args.per_device_batch_size + i] = olp[i]
+        if was_training_before_old:
+            model.train()
 
-        # Policy gradient updates
+        # Policy gradient updates — use correct signal per loss_type
         micro_step = 0; num_updates = 0
         optimizer.zero_grad(set_to_none=True)
         for _epoch in range(args.off_policy_epochs):
@@ -206,8 +210,10 @@ def train(args):
                 plp = log_probs_from_logits(model(input_ids=ids).logits, labs)
                 b_start = bi * args.per_device_batch_size; n_s = ids.shape[0]
                 olp_b = torch.stack([old_lp_dict[b_start + i].to(device) for i in range(n_s)])
-                adv_b = advantages[b_start:b_start + n_s].to(device)
-                ptl, lmeta = per_token_loss(adv_b.unsqueeze(-1), plp, olp_b, args.loss_type, args.cliprange)
+                # no_baseline uses raw rewards; reinforce_with_baseline and grpo_clip use advantages
+                signal = raw_rewards if args.loss_type == "no_baseline" else advantages
+                signal_b = signal[b_start:b_start + n_s].to(device)
+                ptl, lmeta = per_token_loss(signal_b.unsqueeze(-1), plp, olp_b, args.loss_type, args.cliprange)
                 masked = ptl * mask.float()
                 if args.length_norm == "masked_normalize":
                     per_s = masked.sum(dim=1) / args.normalize_constant
