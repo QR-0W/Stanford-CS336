@@ -804,6 +804,21 @@ step=1 lr=7.86e-7  step=2 lr=2.97e-7  step=3 lr=4.10e-9  ← 几乎为零！
 step=1 lr=1.00e-6  step=2 lr=9.99e-7  step=3 lr=9.96e-7  ← 正常的 cosine decay
 ```
 
+### 🛑 ground truth 提取错误（已修复） — GRPO 冷启动/零 reward 根因
+
+`grpo_experiment.py` 中从 `load_sft_examples` 获取训练样本后，用 `ex.source.get("ground_truth", "")` 提取答案。但 GSM8K 格式下 `source` 是原始 record，只有 `question` 和 `answer` 字段，没有 `ground_truth` 键。所有 reward 比较都针对空字符串 `""`，永远无法匹配。
+
+修复：优先取 `ground_truth`/`final_answer` 字段，若不存在则从 `answer` 字段的 `####` 后提取最终数字答案。
+
+修复前：所有 step 的 `correct=0/128, mean_reward=0.0`（SFT warmstart + G=8 也全零）
+修复后：
+```
+step= 1 correct= 41/128 reward=0.3203
+step= 2 correct= 39/128 reward=0.3047
+step= 3 correct= 34/128 reward=0.2656
+step= 4 correct= 52/128 reward=0.4062  ← 最佳
+```
+
 ### ℹ️ 本地 vLLM 未安装
 
 当前服务器的 `python` 环境未安装 vLLM，因此 GRPO 实验无法在本地运行，需要通过远程服务器（10.176.65.209, Conf_Test conda env, vLLM 0.18.1）执行。
