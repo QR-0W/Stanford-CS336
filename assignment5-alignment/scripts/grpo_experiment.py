@@ -136,7 +136,16 @@ def train(args):
 
     train_exs = load_sft_examples(args.train_data, dataset_format="gsm8k", prompt_template_path=prompt_path, seed=args.seed)
     questions = [ex.prompt for ex in train_exs]
-    ground_truths = [ex.source.get("ground_truth", "") if isinstance(ex.source, dict) else "" for ex in train_exs]
+    # 从原始 GSM8K record 中提取最终数字答案（#### 之后的部分）
+    ground_truths = []
+    for ex in train_exs:
+        source = ex.source if isinstance(ex.source, dict) else {}
+        # 优先取 ground_truth/final_answer 字段，否则从 answer 中提取 #### 后的答案
+        gt = source.get("ground_truth") or source.get("final_answer")
+        if gt is None and "answer" in source:
+            answer_str = str(source["answer"])
+            gt = answer_str.split("####")[-1].strip() if "####" in answer_str else answer_str.strip()
+        ground_truths.append(gt if gt else "")
     rng = __import__("random").Random(args.seed)
 
     total_steps = args.n_steps
