@@ -575,7 +575,8 @@ batch mean / gradient_accumulation_steps -> backward
 PDF 要求实现完整 GRPO train loop，包括 rollout、reward、advantage、policy update、定期 validation 和 rollout logging。目前：
 
 - **helper 函数已全部实现并通过测试**。
-- **GRPO train loop 脚本已完成并经 smoke test 验证通过**（远程 5090, 3 steps 成功）。`grpo_experiment.py` 含完整单 GPU + CPU offloading 实现，支持 off-policy epochs、length normalization、多种 loss type。一个中等规模实验（50 steps, batch=16, G=4）正在远程运行中。
+- **GRPO train loop 脚本已完成并经 smoke test 验证通过**（远程 5090, 3 steps 成功）。`grpo_experiment.py` 含完整单 GPU + CPU offloading 实现，支持 off-policy epochs、length normalization、多种 loss type。
+- **Section 8 GSM8K ablations 已完成**：learning rate、baseline、length normalization、std normalization、off-policy/clipping 和 prompt ablation 均有记录结果。
 
 # 8 GRPO Experiments
 
@@ -932,7 +933,7 @@ Qwen 2.5 Math 1.5B 在预训练时已经见过大量 question-answer 对，因�
 - 4 小时内达到的 validation accuracy。
 - 以 wall-clock time 为 x 轴的 validation accuracy 曲线（x 轴 ≤ 4 hrs）。
 
-> 本地状态：本机没有 MATH 数据和 H100 环境（2×3090 24GB vs 2×H100 80GB），因此 leaderboard 实验需要在旧服务器（10.176.65.209, 3×5090 32GB）或课程集群上运行。GSM8K 上的 GRPO 可作为本地验证。
+> 本地状态：本机没有课程私有 MATH 数据路径 `/data/a5-alignment/MATH`，也没有官方 2×H100 提交环境。因此官方 MATH leaderboard 不能在当前 self-study 环境中交付；这不是算法实现缺口，而是课程资源/提交环境约束。GSM8K 上的 GRPO ablations 作为本地可复现实验替代。
 
 # 10 Epilogue
 
@@ -968,9 +969,20 @@ step= 3 correct= 34/128 reward=0.2656
 step= 4 correct= 52/128 reward=0.4062  ← 最佳
 ```
 
-### ℹ️ 本地 vLLM 未安装
+### ℹ️ 官方 leaderboard 资源不可用
 
-当前服务器的 `python` 环境未安装 vLLM，因此 GRPO 实验无法在本地运行，需要通过远程服务器（10.176.65.209, Conf_Test conda env, vLLM 0.18.1）执行。
+官方 leaderboard 需要课程 MATH train/validation 数据、规定的 R1-Zero validation 设置，以及 4 小时 2×H100 的提交/复现实验环境。当前 self-study 环境没有这些私有资源；因此本作业以 GSM8K self-study 实验闭环为完成标准，官方 leaderboard 标记为不适用而不是未实现。
+
+### ✅ 2026-06-16 本地测试状态
+
+`conda activate coding` 环境下运行：
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider
+```
+
+结果：`31 passed`。测试 fixture 会优先使用官方模型路径；若不存在，则回退到本仓库的 `models/Qwen/Qwen2___5-Math-1___5B`，并用 fp32 加载以匹配 snapshot。
 
 ## 完成状态总览
 
@@ -982,7 +994,7 @@ step= 4 correct= 52/128 reward=0.4062  ← 最佳
 | 4.3 | SFT + `--filter-correct` | ✅ GSM8K 全量数据 filter=0 过滤 |
 | 5 | Expert Iteration (5 steps, GSM8K) | ✅ accuracy 16.8% → 49.7% |
 | 7.2 | GRPO Helper Methods (7 个: `compute_group_normalized_rewards`, `compute_naive_policy_gradient_loss`, `compute_grpo_clip_loss`, `compute_policy_gradient_loss`, `masked_mean`, `grpo_microbatch_train_step`, plus training adapter) | ✅ 全部 snapshot 测试通过 |
-| 7.2 | GRPO train loop | ✅ Smoke test 通过（远程 5090），中等实验运行中（50 steps, batch=16, G=4） |
+| 7.2 | GRPO train loop | ✅ Smoke test 通过（远程 5090），Section 8 ablations 已完成 |
 | 7.2 | Bug fix: scheduler.step() 位置 | ✅ 已修复（从内层循环移至 GRPO step 层级） |
 | 8.1 | GRPO Learning Rate Tuning | ✅ lr=5e-6 winner (77.3% max), lr=1e-6/5e-7 无效 |
 | 8.2 | GRPO Baselines | ✅ reinforce_with_baseline (77.3%) > no_baseline (68.0%), baselines 有效 |
@@ -991,11 +1003,11 @@ step= 4 correct= 52/128 reward=0.4062  ← 最佳
 | 8.5 | Off-Policy GRPO | ✅ epochs=2: on-par with on-policy (85.2%), epochs=4: 80.5% |
 | 8.6 | Clip Ablation | ✅ grpo_no_clip (85.2%) > grpo_clip (81.3%) — clipping unnecessary |
 | 8.7 | Prompt Ablation | ✅ question_only (79.7%, 快速) vs r1_zero (85.2%, 更准确) |
-| 9 | Leaderboard | ⏳ 需 MATH + H100/5090，可用远程服务器 |
+| 9 | Leaderboard | N/A self-study：需课程 MATH 数据 + 官方 H100 提交环境；GSM8K GRPO ablations 已替代完成 |
 
 ## 核心发现
 
 1. **SFT 数据量是关键**：128 样本提升 format，7473 样本才显著提升 accuracy（11% → 38.7%）。
 2. **EI 自举有效**：5 步 EI 将 accuracy 从 base 11% 提升至 49.7%，超越纯 SFT（38.7%）约 11 个百分点。
 3. **format 先收敛**：SFT 和 EI 都观察到 format accuracy 先于 answer accuracy 收敛，说明模型先学会格式规范，再学会正确推理。
-4. **GRPO 基础设施就绪**：所有 7 个 helper 函数已实现并通过 snapshot 测试（26/26 GRPO+SFT 测试通过），train loop script 骨架已搭建，核心逻辑（rollout → reward → advantage → policy update → eval）已打通。
+4. **GRPO 基础设施和实验闭环完成**：helper、train loop、bug fixes 和 Section 8 ablations 均已完成；`coding` 环境下 A5 单元测试为 31/31 passed。

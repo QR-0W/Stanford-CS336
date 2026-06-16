@@ -510,6 +510,15 @@ python -m pytest -v
 
 结果：`21 passed`。
 
+2026-06-16 在 `coding` 环境复测时，fastText 0.9.x 与 NumPy 2 的 `np.array(..., copy=False)` 行为不兼容会导致 language/quality/toxicity 测试失败。已加入 `cs336_data.fasttext_compat.predict_top1`，直接使用 fastText 底层 binding 返回 top-1 预测，保留原有输出格式。复测命令：
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 \
+python -m pytest -q -p no:cacheprovider
+```
+
+结果：`21 passed`。
+
 一句话总结：
 
 > `classify_quality` 现在加载的是正式 `10000` URL 流程训练出的 fastText 二分类器；Wikipedia reference 正例经过抓取、HTML 抽取和 Gopher 过滤后得到 `3826` 条，Common Crawl 负例取满 `10000` 条，官方质量测试和完整测试均通过。

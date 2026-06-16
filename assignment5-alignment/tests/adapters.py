@@ -149,6 +149,7 @@ def run_compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor shape (batch_size, sequence_length)，每个位置的信息熵。
     """
+    logits = logits.float()
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
     probs = torch.exp(log_probs)
     return -(probs * log_probs).sum(dim=-1)
@@ -176,7 +177,7 @@ def run_get_response_log_probs(
             "log_probs": shape (batch_size, sequence_length)，各位置的条件 log p(labels|prefix)。
             "token_entropy" (optional): shape (batch_size, sequence_length)，per-token 熵。
     """
-    logits = model(input_ids).logits
+    logits = model(input_ids).logits.float()
     log_probs_all = torch.nn.functional.log_softmax(logits, dim=-1)
     batch_size, sequence_length, _ = log_probs_all.shape
 

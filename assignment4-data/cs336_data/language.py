@@ -12,6 +12,8 @@ from pathlib import Path
 
 import fasttext
 
+from cs336_data.fasttext_compat import predict_top1
+
 
 # 全局缓存，避免每次调用都重新加载模型
 _MODEL = None
@@ -39,8 +41,4 @@ def identify_language(text: str) -> tuple[str, float]:
     """
     text = text.replace("\n", " ").strip()
     model = _get_model()
-    pred = model.predict(text, k=1)
-    # fastText 返回的标签带 "__label__" 前缀，这里只保留语言代码部分
-    label = pred[0][0].replace("__label__", "")
-    score = float(pred[1][0])
-    return label, score
+    return predict_top1(model, text)

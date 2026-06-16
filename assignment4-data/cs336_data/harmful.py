@@ -16,6 +16,8 @@ from pathlib import Path
 
 import fasttext
 
+from cs336_data.fasttext_compat import predict_top1
+
 
 # 全局缓存，避免重复加载 .bin 模型文件
 _NSFW_MODEL = None
@@ -34,9 +36,7 @@ def _predict(model, text: str) -> tuple[str, float]:
     将换行符替换为空格以满足 fastText 输入要求，
     并去掉返回标签中的 ``__label__`` 前缀。
     """
-    text = text.replace("\n", " ").strip()
-    labels, scores = model.predict(text, k=1)
-    return labels[0].replace("__label__", ""), float(scores[0])
+    return predict_top1(model, text)
 
 
 def classify_nsfw(text: str) -> tuple[str, float]:

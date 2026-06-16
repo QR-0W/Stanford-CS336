@@ -17,6 +17,8 @@ import re
 import math
 from pathlib import Path
 
+from cs336_data.fasttext_compat import predict_top1
+
 
 # 用 whitespace 分词（不依赖 NLTK，避免额外资源下载）
 WORD_RE = re.compile(r"\S+")
@@ -128,8 +130,6 @@ def classify_quality(text: str) -> tuple[str, float]:
             import fasttext
 
             _QUALITY_MODEL = fasttext.load_model(str(model_path))
-        # fastText 输入不能含换行符，需先标准化
-        labels, scores = _QUALITY_MODEL.predict(text.replace("\n", " ").strip(), k=1)
-        return labels[0].replace("__label__", ""), float(scores[0])
+        return predict_top1(_QUALITY_MODEL, text)
 
     return _heuristic_classify_quality(text)

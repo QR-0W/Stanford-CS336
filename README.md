@@ -29,15 +29,17 @@
 
 ## 作业进度
 
-> **已完成 4/5** &nbsp;&nbsp; ████████████████████░░░░ &nbsp;&nbsp; **80%**
+> **本地自学版已完成 5/5** &nbsp;&nbsp; ████████████████████████ &nbsp;&nbsp; **100%**
+
+> 官方 leaderboard 轨道依赖课程私有数据、集群路径或提交环境；本仓库记录的是可在本机/自有服务器复现的 self-study 版本。
 
 | # | 作业 | 状态 | 说明 |
 |:---:|---|---|---|
 | 1 | **Basics** | ✅ | BPE Tokenizer · Transformer (RMSNorm, RoPE, SwiGLU) · 完整训练流程 |
 | 2 | **Systems** | ✅ | DDP (Bucketed Overlap) · Flash Attention 2 · Sharded Optimizer |
-| 3 | **Scaling** | ✅ | IsoFLOPs 分析 · Chinchilla 最优外推 · Power-Law 拟合 |
-| 4 | **Data** | ✅ | WET 清洗流水线 · 去重 · PII · 质量分类 · 模型训练 |
-| 5 | **Alignment** | ⏳ | SFT · DPO · GRPO (待完成) |
+| 3 | **Scaling** | ✅ | IsoFLOPs 分析 · Chinchilla 最优外推 · Power-Law 拟合；官方 API 以本地 surrogate 替代 |
+| 4 | **Data** | ✅ | WET 清洗流水线 · 去重 · PII · 质量分类 · 模型训练；官方 Paloma leaderboard 未提交 |
+| 5 | **Alignment** | ✅ | SFT · DPO · Expert Iteration · GRPO；官方 MATH leaderboard 不计入本地完成范围 |
 
 > 📝 [浏览全部学习笔记](./docs/) &nbsp;|&nbsp; 📦 [官方课程仓库](https://github.com/stanford-cs336)
 
@@ -133,6 +135,16 @@ cd assignment4-data
 python -m pytest -v          # 21 tests
 python scripts/filter_data.py --input data/CC*.warc.wet.gz --output-dir data/out
 ```
+
+当前验证环境为 `conda activate coding`：
+
+| Assignment | 验证 |
+|---|---|
+| 1 Basics | `47 passed, 1 xfailed` |
+| 2 Systems | `16 passed` |
+| 3 Scaling | `python -m compileall -q cs336_scaling scripts` |
+| 4 Data | `21 passed` |
+| 5 Alignment | `31 passed` |
 
 <br>
 

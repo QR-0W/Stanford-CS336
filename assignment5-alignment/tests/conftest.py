@@ -210,7 +210,15 @@ def output_strs():
 
 @pytest.fixture
 def model_id():
-    return "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
+    official_model = Path("/data/a5-alignment/models/Qwen2.5-Math-1.5B")
+    local_model = Path("models/Qwen/Qwen2___5-Math-1___5B")
+    if override := os.environ.get("CS336_A5_MODEL_ID"):
+        return override
+    if official_model.exists():
+        return str(official_model)
+    if local_model.exists():
+        return str(local_model)
+    return str(official_model)
 
 
 @pytest.fixture
@@ -220,7 +228,7 @@ def tokenizer(model_id):
 
 @pytest.fixture
 def model(model_id):
-    return AutoModelForCausalLM.from_pretrained(model_id)
+    return AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32)
 
 
 @pytest.fixture
